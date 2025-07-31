@@ -472,7 +472,7 @@ def example_9_error_handling():
     print("EXAMPLE 9: Error Handling Patterns")
     print("=" * 80)
 
-    from mercury.exceptions import (
+    from pymercury.exceptions import (
         MercuryError,
         MercuryOAuthError,
         MercuryAuthenticationError,

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mercury-co-nz-api"
-version = "1.0.0"
+version = "1.0.1"
 authors = [
     {name = "Bertrand Kintanar", email = "bertrand.kintanar@gmail.com"},
 ]
