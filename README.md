@@ -6,6 +6,7 @@ A comprehensive Python library for interacting with Mercury.co.nz services, incl
 
 - **OAuth 2.0 PKCE Authentication** - Secure authentication with Mercury.co.nz
 - **Selfservice API Integration** - Access customer, account, and service data
+- **Multi-Service Support** - Electricity and Gas service integration
 - **Clean Architecture** - Modular design with separate OAuth and API clients
 - **Type Safety** - Full type hints for better IDE support
 - **Comprehensive Error Handling** - Detailed exceptions for different error scenarios
@@ -81,6 +82,8 @@ customer_info = api_client.get_customer_info(tokens.customer_id)
 accounts = api_client.get_accounts(tokens.customer_id)
 ```
 
+## Electricity Services
+
 ### Electricity Usage and Billing
 
 ```python
@@ -100,6 +103,15 @@ bill_summary = api_client.get_bill_summary(customer_id, account_id)
 if bill_summary:
     print(f"Current Balance: ${bill_summary.current_balance}")
     print(f"Due Date: {bill_summary.due_date}")
+```
+
+### Electricity Usage Data
+
+```python
+from pymercury.api import MercuryAPIClient
+
+# Initialize API client with access token
+api_client = MercuryAPIClient(access_token)
 
 # Get electricity usage (defaults to last 14 days)
 electricity_usage = api_client.get_electricity_usage(customer_id, account_id, service_id)
@@ -107,6 +119,128 @@ if electricity_usage:
     print(f"Total Usage: {electricity_usage.total_usage} kWh")
     print(f"Average Daily Usage: {electricity_usage.average_daily_usage} kWh")
     print(f"Average Temperature: {electricity_usage.average_temperature}°C")
+
+# Get hourly electricity usage (2 days ending yesterday)
+hourly_electricity = api_client.get_electricity_usage_hourly(customer_id, account_id, service_id)
+if hourly_electricity:
+    print(f"Hourly Usage Period: {hourly_electricity.start_date} to {hourly_electricity.end_date}")
+    print(f"Total Hourly Usage: {hourly_electricity.total_usage} kWh")
+
+# Get monthly electricity usage (1 year period)
+monthly_electricity = api_client.get_electricity_usage_monthly(customer_id, account_id, service_id)
+if monthly_electricity:
+    print(f"Monthly Usage Period: {monthly_electricity.start_date} to {monthly_electricity.end_date}")
+    print(f"Total Monthly Usage: {monthly_electricity.total_usage} kWh")
+
+# Get electricity usage content (disclaimer, modal info, etc.)
+electricity_content = api_client.get_electricity_usage_content()
+if electricity_content:
+    print(f"Usage content available for electricity service")
+```
+
+## Gas Services
+
+### Gas Usage Content
+
+```python
+from pymercury.api import MercuryAPIClient
+
+# Initialize API client with access token
+api_client = MercuryAPIClient(access_token)
+
+# Get gas usage content (disclaimer, modal info, etc.)
+gas_content = api_client.get_gas_usage_content()
+if gas_content:
+    print(f"Content Name: {gas_content.content_name}")           # "Gas/Usage"
+    print(f"Locale: {gas_content.locale}")                       # "en"
+    print(f"Usage Disclaimer: {gas_content.disclaimer_usage}")   # Gas billing info
+    print(f"Modal Title: {gas_content.usage_info_modal_title}")  # "USAGE GRAPH KEY"
+```
+
+### Gas Usage Data
+
+```python
+from pymercury.api import MercuryAPIClient
+
+# Initialize API client with access token
+api_client = MercuryAPIClient(access_token)
+
+# Get gas usage data (defaults to last 14 days)
+gas_usage = api_client.get_gas_usage(customer_id, account_id, service_id)
+if gas_usage:
+    print(f"Service Type: {gas_usage.service_type}")               # "Gas"
+    print(f"Usage Period: {gas_usage.usage_period}")               # "Daily", "Monthly", etc.
+    print(f"Total Usage: {gas_usage.total_usage} units")           # Gas consumption
+    print(f"Total Cost: ${gas_usage.total_cost}")                  # Total cost
+    print(f"Average Daily: {gas_usage.average_daily_usage} units") # Daily average
+    print(f"Data Points: {gas_usage.data_points}")                 # Number of readings
+
+# Get hourly gas usage (2 days ending yesterday)
+hourly_gas = api_client.get_gas_usage_hourly(customer_id, account_id, service_id)
+if hourly_gas:
+    print(f"Hourly Usage Period: {hourly_gas.start_date} to {hourly_gas.end_date}")
+    print(f"Total Hourly Usage: {hourly_gas.total_usage} units")
+
+# Get monthly gas usage (1 year period)
+monthly_gas = api_client.get_gas_usage_monthly(customer_id, account_id, service_id)
+if monthly_gas:
+    print(f"Monthly Usage Period: {monthly_gas.start_date} to {monthly_gas.end_date}")
+    print(f"Total Monthly Usage: {monthly_gas.total_usage} units")
+```
+
+## Broadband Services
+
+### Fibre Broadband Usage and Service Information
+
+```python
+from pymercury.api import MercuryAPIClient
+
+# Initialize API client with access token
+api_client = MercuryAPIClient(access_token)
+
+# Get broadband service information and usage data
+broadband_info = api_client.get_broadband_usage(customer_id, account_id, service_id)
+if broadband_info:
+    # Service information
+    print(f"Plan Name: {broadband_info.plan_name}")                 # "FibreClassic Unlimited Naked"
+    print(f"Plan Code: {broadband_info.plan_code}")                 # "20398"
+    print(f"Service Type: {broadband_info.service_type}")           # "Broadband"
+
+    # Usage summary
+    print(f"Total Data Used: {broadband_info.total_data_used} GB")  # Total usage
+    print(f"Average Daily: {broadband_info.avg_daily_usage} GB")    # Daily average
+    print(f"Max Daily: {broadband_info.max_daily_usage} GB")        # Peak usage day
+    print(f"Usage Days: {broadband_info.usage_days}")               # Days with usage > 0
+    print(f"Data Points: {broadband_info.data_points}")             # Total days of data
+
+    # Usage period
+    print(f"Period: {broadband_info.start_date} to {broadband_info.end_date}")
+
+    # Daily usage breakdown (first 5 days)
+    for day in broadband_info.daily_usages[:5]:
+        date = day['date'][:10]  # Just the date part
+        usage = day['usage']
+        print(f"  {date}: {usage} GB")
+
+# Alternative method (alias)
+fibre_info = api_client.get_fibre_usage(customer_id, account_id, service_id)
+```
+
+### Generic Usage Methods
+
+```python
+from pymercury.api import MercuryAPIClient
+
+# Initialize API client with access token
+api_client = MercuryAPIClient(access_token)
+
+# Generic usage content method (works for any service type)
+electricity_content = api_client.get_usage_content("Electricity")
+gas_content = api_client.get_usage_content("Gas")
+
+# Generic usage data method (works for any service type)
+electricity_usage = api_client.get_service_usage(customer_id, account_id, 'electricity', service_id)
+gas_usage = api_client.get_service_usage(customer_id, account_id, 'gas', service_id)
 ```
 
 ## Configuration
@@ -166,18 +300,44 @@ except MercuryError as e:
 
 ## API Methods
 
-The library provides access to all Mercury.co.nz selfservice APIs:
+The library provides access to all Mercury.co.nz selfservice APIs, organized by functionality:
 
-- `get_customer_info()` - Customer information
-- `get_accounts()` - Account details
-- `get_services()` - Service information
-- `get_electricity_meter_info()` - Meter details
-- `get_bill_summary()` - Billing information
-- `get_electricity_usage()` - Usage data with temperature
-- `get_electricity_usage_hourly()` - Hourly usage data
-- `get_electricity_usage_monthly()` - Monthly usage data
-- `get_electricity_plans()` - Available plans and pricing
-- `get_electricity_meter_reads()` - Meter reading history
+### Account Management
+
+- `get_customer_info()` - Customer information and profile details
+- `get_accounts()` - Account details and account listing
+- `get_services()` - Service information across all accounts
+
+### Billing & Financial
+
+- `get_bill_summary()` - Current billing information and payment status
+
+### Electricity Services
+
+- `get_electricity_usage_content()` - Electricity usage content and disclaimers
+- `get_electricity_usage()` - Daily electricity usage data with temperature
+- `get_electricity_usage_hourly()` - Hourly electricity usage data
+- `get_electricity_usage_monthly()` - Monthly electricity usage data
+- `get_electricity_meter_info()` - Electricity meter details and status
+- `get_electricity_meter_reads()` - Electricity meter reading history
+- `get_electricity_plans()` - Available electricity plans and pricing
+
+### Gas Services
+
+- `get_gas_usage_content()` - Gas usage content and disclaimers
+- `get_gas_usage()` - Daily gas usage data (no temperature data)
+- `get_gas_usage_hourly()` - Hourly gas usage data
+- `get_gas_usage_monthly()` - Monthly gas usage data
+
+### Broadband Services
+
+- `get_broadband_usage()` - Fibre broadband service info and daily usage data
+- `get_fibre_usage()` - Fibre broadband service info and usage (alias for broadband)
+
+### Generic/Cross-Service Methods
+
+- `get_usage_content(service_type)` - Generic usage content for any service type
+- `get_service_usage(service_type, ...)` - Generic usage data for any service type
 
 ## Requirements
 

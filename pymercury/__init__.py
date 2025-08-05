@@ -60,7 +60,24 @@ from .client import MercuryClient, CompleteAccountData, authenticate, get_comple
 from .oauth import MercuryOAuthClient, OAuthTokens
 
 # API functionality
-from .api import MercuryAPIClient, CustomerInfo, Account, Service, ServiceIds, MeterInfo, BillSummary, ElectricityUsageContent, ElectricitySummary, ElectricityUsage, ElectricityPlans, ElectricityMeterReads
+from .api import (
+    MercuryAPIClient,
+    CustomerInfo,
+    Account,
+    Service,
+    ServiceIds,
+    MeterInfo,
+    BillSummary,
+    ElectricityUsageContent,
+    GasUsageContent,
+    ServiceUsage,
+    ElectricitySummary,
+    ElectricityUsage,
+    GasUsage,
+    BroadbandUsage,
+    ElectricityPlans,
+    ElectricityMeterReads
+)
 
 # Configuration and exceptions
 from .config import MercuryConfig
@@ -102,8 +119,12 @@ __all__ = [
     'MeterInfo',
     'BillSummary',
     'ElectricityUsageContent',
+    'GasUsageContent',
+    'ServiceUsage',
     'ElectricitySummary',
     'ElectricityUsage',
+    'GasUsage',
+    'BroadbandUsage',
     'ElectricityPlans',
     'ElectricityMeterReads',
 
