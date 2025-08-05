@@ -18,7 +18,50 @@ A comprehensive Python library for interacting with Mercury.co.nz services, incl
 pip install pymercury
 ```
 
+### Development Installation
+
+For development or to run the examples:
+
+```bash
+# Clone the repository
+git clone <repository-url>
+cd pymercury
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Install in development mode
+pip install -e .
+```
+
 ## Quick Start
+
+### Environment Setup (Recommended)
+
+For security, use environment variables instead of hardcoding credentials:
+
+1. **Create a `.env` file** in the project root:
+
+   ```bash
+   cp env.template .env
+   ```
+
+2. **Edit `.env` with your Mercury Energy credentials**:
+
+   ```bash
+   # Mercury Energy Credentials
+   MERCURY_EMAIL=your-email@example.com
+   MERCURY_PASSWORD=your-actual-password
+   ```
+
+3. **The library automatically loads these credentials**:
+   ```python
+   # No need to hardcode credentials!
+   from pymercury import authenticate
+   tokens = authenticate()  # Uses MERCURY_EMAIL and MERCURY_PASSWORD from .env
+   ```
+
+> **Security Note**: Never commit `.env` files to version control. The `.env` file is automatically ignored by git.
 
 ### Simple Authentication
 
@@ -73,7 +116,7 @@ from pymercury.oauth import MercuryOAuthClient
 from pymercury.api import MercuryAPIClient
 
 # OAuth authentication only
-oauth_client = MercuryOAuthClient("email@example.com", "password")
+oauth_client = MercuryOAuthClient("your-email@example.com", "your-password")
 tokens = oauth_client.authenticate()
 
 # API calls with existing tokens
@@ -247,18 +290,65 @@ gas_usage = api_client.get_service_usage(customer_id, account_id, 'gas', service
 
 ### Environment Variables
 
-Create a `.env` file or set environment variables:
+The library supports environment variable configuration for both credentials and advanced settings.
+
+#### Required Credentials
+
+Create a `.env` file in your project root:
 
 ```bash
-# OAuth Configuration
+# Mercury Energy Account Credentials
+MERCURY_EMAIL=your-email@example.com
+MERCURY_PASSWORD=your-password
+```
+
+#### Optional Advanced Configuration
+
+You can also override default OAuth and API settings:
+
+```bash
+# OAuth Configuration (optional - uses defaults if not specified)
 MERCURY_CLIENT_ID=4c8c2c47-24cd-485d-aad9-12f3d95b3ceb
 MERCURY_REDIRECT_URI=https://myaccount.mercury.co.nz
 MERCURY_BASE_URL=https://login.mercury.co.nz/fc07dca7-cd6a-4578-952b-de7a7afaebdc
 MERCURY_TIMEOUT=20
 
-# API Configuration
+# API Configuration (optional - uses defaults if not specified)
 MERCURY_API_BASE_URL=https://apis.mercury.co.nz/selfservice/v1
 MERCURY_API_SUBSCRIPTION_KEY=f62040b20cf9401fb081880cb71c7dec
+```
+
+#### Environment Variable Reference
+
+| Variable                       | Description                          | Required   | Default          |
+| ------------------------------ | ------------------------------------ | ---------- | ---------------- |
+| `MERCURY_EMAIL`                | Your Mercury Energy account email    | ✅ **Yes** | -                |
+| `MERCURY_PASSWORD`             | Your Mercury Energy account password | ✅ **Yes** | -                |
+| `MERCURY_CLIENT_ID`            | OAuth client ID                      | No         | Built-in default |
+| `MERCURY_REDIRECT_URI`         | OAuth redirect URI                   | No         | Built-in default |
+| `MERCURY_BASE_URL`             | OAuth base URL                       | No         | Built-in default |
+| `MERCURY_TIMEOUT`              | Request timeout (seconds)            | No         | 20               |
+| `MERCURY_API_BASE_URL`         | API base URL                         | No         | Built-in default |
+| `MERCURY_API_SUBSCRIPTION_KEY` | API subscription key                 | No         | Built-in default |
+
+#### Security Best Practices
+
+- ✅ **Never commit `.env` files** to version control
+- ✅ Use the provided `env.template` as a reference
+- ✅ Each developer should have their own `.env` file
+- ✅ Use environment variables in production deployments
+- ✅ Regularly rotate your Mercury Energy password
+
+#### Testing Environment Setup
+
+You can verify your environment setup:
+
+```bash
+# Test credential loading
+python3 -c "from mercury_examples import MERCURY_EMAIL; print('Email loaded:', MERCURY_EMAIL)"
+
+# Run examples with your credentials
+python3 mercury_examples.py
 ```
 
 ### Programmatic Configuration
@@ -272,7 +362,7 @@ config = MercuryConfig(
     timeout=30
 )
 
-client = MercuryClient("email@example.com", "password", config=config)
+client = MercuryClient("your-email@example.com", "your-password", config=config)
 ```
 
 ## Error Handling
@@ -286,7 +376,7 @@ from pymercury import (
 )
 
 try:
-    client = MercuryClient("email@example.com", "password")
+    client = MercuryClient("your-email@example.com", "your-password")
     client.login()
     data = client.get_complete_account_data()
 
@@ -343,6 +433,7 @@ The library provides access to all Mercury.co.nz selfservice APIs, organized by 
 
 - Python 3.7+
 - `requests>=2.25.0`
+- `python-dotenv>=1.0.0` (for environment variable support)
 
 ## Development
 
@@ -357,8 +448,38 @@ pip install pymercury[dev]
 Run the comprehensive test suite:
 
 ```bash
-python test_mercury_library.py
+# Run all tests
+python3 run_tests.py
+
+# Run specific test modules
+python3 -m pytest tests/
+
+# Run with coverage
+python3 -m pytest tests/ --cov=pymercury
 ```
+
+### Example Scripts
+
+The repository includes comprehensive examples:
+
+```bash
+# Set up credentials first
+cp env.template .env
+# Edit .env with your actual Mercury Energy credentials
+
+# Run all examples (requires real Mercury account)
+python3 mercury_examples.py
+```
+
+The examples demonstrate:
+
+- ✅ Authentication and token management
+- ✅ Complete account data retrieval
+- ✅ Electricity usage analysis and billing
+- ✅ Gas usage content and data
+- ✅ Broadband/Fibre service information
+- ✅ Error handling and configuration
+- ✅ Multi-service integration patterns
 
 ## License
 

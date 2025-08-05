@@ -19,7 +19,16 @@ from pymercury import (
 )
 from urllib.parse import quote
 from typing import Optional
+import os
+from dotenv import load_dotenv
 
+# Load environment variables from .env file
+load_dotenv()
+
+
+# Load credentials from environment variables
+MERCURY_EMAIL = os.getenv('MERCURY_EMAIL', 'your@email.com')
+MERCURY_PASSWORD = os.getenv('MERCURY_PASSWORD', 'password')
 
 # Shared authentication for efficient token reuse
 _shared_tokens = None
@@ -32,7 +41,7 @@ def get_shared_authentication():
 
     if _shared_tokens is None or _shared_api_client is None:
         print("🔐 Authenticating to Mercury Energy (shared session)...")
-        _shared_tokens = authenticate("your@email.com", "password")
+        _shared_tokens = authenticate(MERCURY_EMAIL, MERCURY_PASSWORD)
         _shared_api_client = MercuryAPIClient(_shared_tokens.access_token)
         print(f"✅ Shared authentication complete! Customer ID: {_shared_tokens.customer_id}")
 
@@ -47,7 +56,7 @@ def example_1_simple_authentication():
 
     try:
         # Simple one-line authentication
-        tokens = authenticate("your@email.com", "password")
+        tokens = authenticate(MERCURY_EMAIL, MERCURY_PASSWORD)
 
         print(f"✅ Authentication successful!")
         print(f"   Customer ID: {tokens.customer_id}")
@@ -69,7 +78,7 @@ def example_2_complete_account_data():
 
     try:
         # Get everything in one call
-        complete_data = get_complete_data("your@email.com", "password")
+        complete_data = get_complete_data(MERCURY_EMAIL, MERCURY_PASSWORD)
 
         print(f"✅ Complete data retrieved successfully!")
         print(f"   Customer ID: {complete_data.customer_id}")
@@ -80,9 +89,25 @@ def example_2_complete_account_data():
         print(f"   Gas Services: {len(complete_data.service_ids.gas)}")
         print(f"   Broadband Services: {len(complete_data.service_ids.broadband)}")
 
+        # Show breakdown by service type
+        print(f"   🔍 Service Breakdown:")
+        for service in complete_data.services:
+            service_type = service.service_group or "Unknown"
+            # Handle address properly - it's a dict with 'formatted' key
+            if service.address and isinstance(service.address, dict) and 'formatted' in service.address:
+                address_text = service.address['formatted']
+                address_preview = address_text[:50] + "..." if len(address_text) > 50 else address_text
+            else:
+                address_preview = "No address available"
+            print(f"     • {service_type}: {service.service_id} - {address_preview}")
+
         # Show service details
         for service in complete_data.services[:3]:  # Show first 3 services
-            print(f"   Service: {service.service_id} ({service.service_group}) - {service.address}")
+            if service.address and isinstance(service.address, dict) and 'formatted' in service.address:
+                service_address = service.address['formatted']
+            else:
+                service_address = "No address available"
+            print(f"   Service: {service.service_id} ({service.service_group}) - {service_address}")
 
     except Exception as e:
         print(f"❌ Data retrieval failed: {e}")
@@ -98,7 +123,7 @@ def example_3_main_client_usage():
 
     try:
         # Initialize the main client
-        client = MercuryClient("your@email.com", "password", verbose=True)
+        client = MercuryClient(MERCURY_EMAIL, MERCURY_PASSWORD, verbose=True)
 
         # Step 1: Login
         client.login()
@@ -188,6 +213,22 @@ def example_4_meter_and_billing_info(tokens=None, api_client=None):
                 print(f"     • Gas: ${bill_summary.gas_amount}")
             if bill_summary.broadband_amount:
                 print(f"     • Broadband: ${bill_summary.broadband_amount}")
+
+        # Try to get gas billing info if gas services are available
+        print("\n🔥 Checking for gas billing information...")
+        try:
+            # Note: Gas billing is typically included in the main bill summary
+            # but we can demonstrate gas-specific usage content
+            gas_content = api_client.get_gas_usage_content()
+            if gas_content and gas_content.content:
+                print(f"✅ Gas Service Information Available:")
+                if hasattr(gas_content.content, 'disclaimer_usage'):
+                    print(f"   Usage Disclaimer: Available")
+                if hasattr(gas_content.content, 'usage_info_modal_title'):
+                    print(f"   Usage Info: Available")
+                print(f"   Content Locale: {gas_content.locale}")
+        except Exception as e:
+            print(f"   ⚠️ Gas service content not available: {e}")
             if bill_summary.bill_url:
                 print(f"   Bill PDF: Available")
             # Legacy fields
@@ -202,10 +243,10 @@ def example_4_meter_and_billing_info(tokens=None, api_client=None):
     print()
 
 
-def example_5_usage_analysis_all_intervals(tokens=None, api_client=None):
-    """Example 5: Complete usage analysis across all time intervals"""
+def example_5_electricity_usage_analysis(tokens=None, api_client=None):
+    """Example 5: Complete electricity usage analysis across all time intervals"""
     print("=" * 80)
-    print("EXAMPLE 5: Complete Usage Analysis - All Intervals")
+    print("EXAMPLE 5: Electricity Usage Analysis - All Intervals")
     print("=" * 80)
 
     try:
@@ -215,11 +256,13 @@ def example_5_usage_analysis_all_intervals(tokens=None, api_client=None):
 
         customer_id = tokens.customer_id
         account_id = "834816299"
-        service_id = "80101901092"
+        electricity_service_id = "80101901092"
+        gas_service_id = "80101901093"
+        broadband_service_id = "80101915345"
 
         # 1. Electricity Summary (today's breakdown)
         print("📊 Getting electricity summary (today)...")
-        electricity_summary = api_client.get_electricity_summary(customer_id, account_id, service_id)
+        electricity_summary = api_client.get_electricity_summary(customer_id, account_id, electricity_service_id)
         if electricity_summary:
             print(f"✅ Electricity Summary Retrieved:")
             print(f"   Service Type: {electricity_summary.service_type}")
@@ -244,8 +287,8 @@ def example_5_usage_analysis_all_intervals(tokens=None, api_client=None):
             print(f"      Average Daily Usage: {electricity_summary.average_daily_usage:.2f} kWh")
 
         # 2. Daily Usage (last 14 days with temperature)
-        print("\n📈 Getting daily usage (last 14 days)...")
-        daily_usage = api_client.get_electricity_usage(customer_id, account_id, service_id)
+        print("\n📈 Getting daily electricity usage (last 14 days)...")
+        daily_usage = api_client.get_electricity_usage(customer_id, account_id, electricity_service_id)
         if daily_usage:
             print(f"✅ Daily Usage Analysis:")
             print(f"   Service Type: {daily_usage.service_type}")
@@ -268,9 +311,9 @@ def example_5_usage_analysis_all_intervals(tokens=None, api_client=None):
                 print(f"      {i}. {date_str}: {day['consumption']:.2f} kWh (${day['cost']:.2f})")
 
         # 3. Hourly Usage (last 2 days ending yesterday)
-        print("\n⏰ Getting hourly usage (2 days ending yesterday)...")
+        print("\n⏰ Getting hourly electricity usage (2 days ending yesterday)...")
         try:
-            hourly_usage = api_client.get_electricity_usage_hourly(customer_id, account_id, service_id)
+            hourly_usage = api_client.get_electricity_usage_hourly(customer_id, account_id, electricity_service_id)
             if hourly_usage:
                 print(f"✅ Hourly Usage Analysis:")
                 print(f"   Period: {hourly_usage.start_date} to {hourly_usage.end_date}")
@@ -286,9 +329,9 @@ def example_5_usage_analysis_all_intervals(tokens=None, api_client=None):
             print(f"⚠️ Hourly usage request failed: {e}")
 
         # 4. Monthly Usage (last 12 months)
-        print("\n📆 Getting monthly usage (last 12 months)...")
+        print("\n📆 Getting monthly electricity usage (last 12 months)...")
         try:
-            monthly_usage = api_client.get_electricity_usage_monthly(customer_id, account_id, service_id)
+            monthly_usage = api_client.get_electricity_usage_monthly(customer_id, account_id, electricity_service_id)
             if monthly_usage:
                 print(f"✅ Monthly Usage Analysis:")
                 print(f"   Period: {monthly_usage.start_date} to {monthly_usage.end_date}")
@@ -302,7 +345,172 @@ def example_5_usage_analysis_all_intervals(tokens=None, api_client=None):
             print(f"⚠️ Monthly usage request failed: {e}")
 
     except Exception as e:
-        print(f"❌ Usage analysis failed: {e}")
+        print(f"❌ Electricity usage analysis failed: {e}")
+
+    print()
+
+
+def example_5a_gas_usage_analysis(tokens=None, api_client=None):
+    """Example 5a: Complete gas usage analysis across all time intervals"""
+    print("=" * 80)
+    print("EXAMPLE 5a: Gas Usage Analysis - All Intervals")
+    print("=" * 80)
+
+    try:
+        # Use shared authentication or get fresh tokens
+        if tokens is None or api_client is None:
+            tokens, api_client = get_shared_authentication()
+
+        customer_id = tokens.customer_id
+        account_id = "834816299"
+        service_id = "80101901093"  # Gas service ID
+
+        # 1. Gas Usage Content
+        print("🔥 Getting gas usage content...")
+        try:
+            gas_content = api_client.get_gas_usage_content()
+            if gas_content:
+                print(f"✅ Gas Usage Content Retrieved:")
+                print(f"   Content Name: {gas_content.content_name}")
+                print(f"   Locale: {gas_content.locale}")
+                if gas_content.content:
+                    print(f"   📋 Content Available:")
+                    if hasattr(gas_content.content, 'disclaimer_usage') and gas_content.content.disclaimer_usage:
+                        disclaimer = gas_content.content.disclaimer_usage.get('text', 'N/A')
+                        print(f"     • Usage Disclaimer: {disclaimer[:100]}...")
+                    if hasattr(gas_content.content, 'usage_info_modal_title') and gas_content.content.usage_info_modal_title:
+                        title = gas_content.content.usage_info_modal_title.get('text', 'N/A')
+                        print(f"     • Info Modal Title: {title}")
+        except Exception as e:
+            print(f"⚠️ Gas content request failed: {e}")
+
+        # 2. Daily Gas Usage
+        print("\n🔥 Getting daily gas usage...")
+        try:
+            daily_gas = api_client.get_gas_usage(customer_id, account_id, service_id)
+            if daily_gas:
+                print(f"✅ Daily Gas Usage Analysis:")
+                print(f"   Service Type: {daily_gas.service_type}")
+                print(f"   Usage Period: {daily_gas.usage_period}")
+                print(f"   Period: {daily_gas.start_date} to {daily_gas.end_date}")
+                print(f"   📊 Gas Usage Statistics:")
+                print(f"      Total Usage: {daily_gas.total_usage:.2f} units")
+                print(f"      Total Cost: ${daily_gas.total_cost:.2f}")
+                print(f"      Average Daily: {daily_gas.average_daily_usage:.2f} units")
+                print(f"      Max Daily: {daily_gas.max_daily_usage:.2f} units")
+                print(f"      Min Daily: {daily_gas.min_daily_usage:.2f} units")
+                print(f"      Data Points: {daily_gas.data_points}")
+                # Gas doesn't typically have temperature data like electricity
+                print(f"   📋 Sample Daily Breakdown (last 3 days):")
+                for i, day in enumerate(daily_gas.daily_usage[-3:], 1):
+                    date_str = day['date'][:10] if day['date'] else 'Unknown'
+                    print(f"      {i}. {date_str}: {day['consumption']:.2f} units (${day['cost']:.2f})")
+            else:
+                print(f"⚠️ Daily gas usage data not available")
+        except Exception as e:
+            print(f"⚠️ Daily gas usage request failed: {e}")
+
+        # 3. Hourly Gas Usage
+        print("\n🔥 Getting hourly gas usage...")
+        try:
+            hourly_gas = api_client.get_gas_usage_hourly(customer_id, account_id, service_id)
+            if hourly_gas:
+                print(f"✅ Hourly Gas Usage Analysis:")
+                print(f"   Period: {hourly_gas.start_date} to {hourly_gas.end_date}")
+                print(f"   Total Usage: {hourly_gas.total_usage:.2f} units")
+                print(f"   Hourly Data Points: {hourly_gas.data_points}")
+                print(f"   Max Daily: {hourly_gas.max_daily_usage:.2f} units")
+                print(f"   Min Daily: {hourly_gas.min_daily_usage:.2f} units")
+            else:
+                print(f"⚠️ Hourly gas usage data not available")
+        except Exception as e:
+            print(f"⚠️ Hourly gas usage request failed: {e}")
+
+        # 4. Monthly Gas Usage
+        print("\n🔥 Getting monthly gas usage...")
+        try:
+            monthly_gas = api_client.get_gas_usage_monthly(customer_id, account_id, service_id)
+            if monthly_gas:
+                print(f"✅ Monthly Gas Usage Analysis:")
+                print(f"   Period: {monthly_gas.start_date} to {monthly_gas.end_date}")
+                print(f"   Total Usage: {monthly_gas.total_usage:.2f} units")
+                print(f"   Monthly Data Points: {monthly_gas.data_points}")
+                print(f"   Average Monthly: {monthly_gas.average_daily_usage * 30:.2f} units (estimated)")
+            else:
+                print(f"⚠️ Monthly gas usage data not available")
+        except Exception as e:
+            print(f"⚠️ Monthly gas usage request failed: {e}")
+
+    except Exception as e:
+        print(f"❌ Gas usage analysis failed: {e}")
+
+    print()
+
+
+def example_5b_broadband_usage_analysis(tokens=None, api_client=None):
+    """Example 5b: Broadband/Fibre usage analysis"""
+    print("=" * 80)
+    print("EXAMPLE 5b: Broadband/Fibre Usage Analysis")
+    print("=" * 80)
+
+    try:
+        # Use shared authentication or get fresh tokens
+        if tokens is None or api_client is None:
+            tokens, api_client = get_shared_authentication()
+
+        customer_id = tokens.customer_id
+        account_id = "834816299"
+        service_id = "80101915345"  # Broadband service ID
+
+        print("📡 Getting broadband usage information...")
+        try:
+            broadband_usage = api_client.get_broadband_usage(customer_id, account_id, service_id)
+            if broadband_usage:
+                print(f"✅ Broadband Usage Analysis:")
+                print(f"   📊 Usage Summary:")
+                print(f"      Average Daily Usage: {broadband_usage.avg_daily_usage} GB")
+                print(f"      Total Data Used: {broadband_usage.total_data_used} GB")
+                print(f"      Usage Days: {broadband_usage.usage_days}")
+                print(f"      Data Points: {broadband_usage.data_points}")
+
+                print(f"   📋 Plan Information:")
+                print(f"      Plan Name: {broadband_usage.plan_name}")
+                print(f"      Plan Code: {broadband_usage.plan_code}")
+
+                if broadband_usage.daily_usages:
+                    print(f"   📈 Daily Usage Breakdown (last 7 days):")
+                    # Show last 7 days of usage
+                    recent_usage = broadband_usage.daily_usages[-7:] if len(broadband_usage.daily_usages) >= 7 else broadband_usage.daily_usages
+                    for i, day_usage in enumerate(recent_usage, 1):
+                        date_str = day_usage['date'][:10] if day_usage['date'] else 'Unknown'
+                        usage_gb = float(day_usage['usage']) if day_usage['usage'] else 0.0
+                        print(f"      {i}. {date_str}: {usage_gb:.2f} GB")
+
+                # Usage pattern analysis
+                if broadband_usage.daily_usages:
+                    non_zero_days = [float(day['usage']) for day in broadband_usage.daily_usages if float(day['usage']) > 0]
+                    if non_zero_days:
+                        max_usage = max(non_zero_days)
+                        min_usage = min(non_zero_days)
+                        print(f"   📊 Usage Patterns:")
+                        print(f"      Peak Daily Usage: {max_usage:.2f} GB")
+                        print(f"      Minimum Daily Usage: {min_usage:.2f} GB")
+                        print(f"      Active Usage Days: {len(non_zero_days)} out of {len(broadband_usage.daily_usages)}")
+
+            else:
+                print(f"⚠️ Broadband usage data not available")
+
+            # Also try the fibre alias
+            print("\n📡 Testing fibre usage alias...")
+            fibre_usage = api_client.get_fibre_usage(customer_id, account_id, service_id)
+            if fibre_usage:
+                print(f"✅ Fibre usage alias working - Plan: {fibre_usage.plan_name}")
+
+        except Exception as e:
+            print(f"⚠️ Broadband usage request failed: {e}")
+
+    except Exception as e:
+        print(f"❌ Broadband usage analysis failed: {e}")
 
     print()
 
@@ -322,7 +530,7 @@ def example_6_meter_reads_and_consumption(tokens=None, api_client=None):
         account_id = "834816299"
         service_id = "80101901092"
 
-        print("📊 Getting meter reads...")
+        print("📊 Getting electricity meter reads...")
         meter_reads = api_client.get_electricity_meter_reads(customer_id, account_id, service_id)
         if meter_reads:
             print(f"✅ Electricity Meter Reads Analysis:")
@@ -440,11 +648,11 @@ def example_8_custom_configuration():
         print(f"   API Base URL: {custom_config.api_base_url}")
 
         # Custom client with configuration
-        client = MercuryClient("your@email.com", "password", config=custom_config, verbose=True)
+        client = MercuryClient(MERCURY_EMAIL, MERCURY_PASSWORD, config=custom_config, verbose=True)
         print(f"✅ Custom client created with enhanced configuration")
 
         # Direct OAuth client usage
-        oauth_client = MercuryOAuthClient("your@email.com", "password", config=custom_config)
+        oauth_client = MercuryOAuthClient(MERCURY_EMAIL, MERCURY_PASSWORD, config=custom_config)
         print(f"✅ Direct OAuth client created")
 
         # Direct API client usage
@@ -458,7 +666,9 @@ def example_8_custom_configuration():
         end_date = quote("2024-12-31T23:59:59+12:00")
 
         print(f"   Custom range: {start_date} to {end_date}")
-        print(f"   Ready for: api_client.get_electricity_usage(customer_id, account_id, service_id, 'monthly', start_date, end_date)")
+        print(f"   Electricity: api_client.get_electricity_usage(customer_id, account_id, service_id, 'monthly', start_date, end_date)")
+        print(f"   Gas: api_client.get_gas_usage(customer_id, account_id, service_id, 'monthly', start_date, end_date)")
+        print(f"   Broadband: api_client.get_broadband_usage(customer_id, account_id, service_id)")
 
     except Exception as e:
         print(f"❌ Custom configuration failed: {e}")
@@ -514,8 +724,8 @@ def example_11_refresh_tokens():
     print("=" * 80)
 
     try:
-        email = "your@email.com"
-        password = "password"
+        email = MERCURY_EMAIL
+        password = MERCURY_PASSWORD
 
         print("🔄 Demonstrating refresh token functionality...")
 
@@ -607,7 +817,7 @@ def example_10_complete_workflow():
 
         # Step 1: Authentication and setup
         print("\n1️⃣ Authentication & Setup")
-        client = MercuryClient("your@email.com", "password", verbose=False)
+        client = MercuryClient(MERCURY_EMAIL, MERCURY_PASSWORD, verbose=False)
         # client.login()  # Commented out for demo
         print("   ✅ Client initialized")
 
@@ -628,12 +838,13 @@ def example_10_complete_workflow():
         print(f"   📊 Meter reads: Available")
         print(f"   💡 Plans & pricing: Available")
 
-        # Step 4: Usage analysis across all intervals
-        print("\n4️⃣ Complete Usage Analysis")
-        print("   ⚡ Summary: Today's breakdown")
-        print("   📈 Daily: 14-day trends with temperature")
-        print("   ⏰ Hourly: 48-hour detailed analysis")
-        print("   📆 Monthly: 12-month seasonal patterns")
+        # Step 4: Multi-service usage analysis
+        print("\n4️⃣ Multi-Service Usage Analysis")
+        print("   ⚡ Electricity: Summary, daily, hourly, monthly")
+        print("   🔥 Gas: Daily, hourly, monthly consumption")
+        print("   📡 Broadband: Data usage and plan information")
+        print("   🌡️ Temperature correlation (electricity)")
+        print("   📊 Cross-service cost analysis")
 
         # Step 5: Financial analysis
         print("\n5️⃣ Financial Analysis")
@@ -676,7 +887,9 @@ def main():
 
     # Run API examples with shared authentication (no re-authentication needed)
     example_4_meter_and_billing_info(shared_tokens, shared_api_client)
-    example_5_usage_analysis_all_intervals(shared_tokens, shared_api_client)
+    example_5_electricity_usage_analysis(shared_tokens, shared_api_client)
+    example_5a_gas_usage_analysis(shared_tokens, shared_api_client)
+    example_5b_broadband_usage_analysis(shared_tokens, shared_api_client)
     example_6_meter_reads_and_consumption(shared_tokens, shared_api_client)
     example_7_plans_and_pricing(shared_tokens, shared_api_client)
 
@@ -692,11 +905,13 @@ def main():
     print()
     print("📚 Mercury Library Features Demonstrated:")
     print("   ✅ OAuth Authentication (simple and advanced)")
-    print("   ✅ Complete Account Data Retrieval")
-    print("   ✅ Meter Information & ICP Integration")
-    print("   ✅ Bill Summary & Payment Information")
-    print("   ✅ Usage Analysis (Hourly, Daily, Monthly)")
-    print("   ✅ Temperature Correlation")
+    print("   ✅ Multi-Service Account Data Retrieval")
+    print("   ✅ Electricity: Meter Info, Usage, Plans & ICP Integration")
+    print("   ✅ Gas: Usage Content, Daily/Hourly/Monthly Analysis")
+    print("   ✅ Broadband: Data Usage, Plan Information & Fibre Support")
+    print("   ✅ Bill Summary & Payment Information (all services)")
+    print("   ✅ Usage Analysis (Hourly, Daily, Monthly) - All Services")
+    print("   ✅ Temperature Correlation (electricity)")
     print("   ✅ Meter Reads & Consumption Calculation")
     print("   ✅ Plans & Pricing with Auto-ICP")
     print("   ✅ Custom Configuration")
@@ -708,12 +923,19 @@ def main():
     print("🚀 Total API Endpoints: 12")
     print("🚀 Total Data Classes: 11")
     print("🚀 Smart Defaults: 5 methods")
-    print("🚀 Complete New Zealand Electricity Integration!")
+    print("🚀 Complete New Zealand Multi-Service Integration!")
+    print("🚀 Services Supported: Electricity ⚡ Gas 🔥 Broadband 📡")
     print()
     print("⚡ Efficiency Optimization:")
-    print("   🔄 Shared Authentication: 1 login for 4 API examples")
-    print("   ⏱️ Faster Execution: ~75% reduction in auth time")
+    print("   🔄 Shared Authentication: 1 login for 6 API examples")
+    print("   ⏱️ Faster Execution: ~80% reduction in auth time")
     print("   💾 Token Reuse: Production-ready pattern demonstrated")
+    print("   🌟 Multi-Service Support: All 3 services in one library!")
+    print()
+    print("🎯 Service Coverage:")
+    print("   ⚡ Electricity: Full usage analysis, meter reads, plans")
+    print("   🔥 Gas: Usage content, consumption tracking, billing")
+    print("   📡 Broadband: Data usage, plan details, fibre support")
 
 
 if __name__ == "__main__":

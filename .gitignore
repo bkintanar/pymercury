@@ -122,3 +122,7 @@ dmypy.json
 # OS
 .DS_Store
 Thumbs.db
+# Add .env to your .gitignore to keep credentials safe
+.env
+.env.local
+.env.*.local
