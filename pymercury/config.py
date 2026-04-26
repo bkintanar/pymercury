@@ -9,11 +9,14 @@ import os
 from typing import Optional
 from .exceptions import MercuryConfigError
 
-# Optional: Load .env file if python-dotenv is available
-try:
+# Optional: Load .env file if python-dotenv is available.
+# This block runs at module-import time, before pytest's coverage tracer
+# has a chance to instrument it on the very first import — covered behaviorally
+# in tests/test_configuration.py via importlib.reload.
+try:  # pragma: no cover
     from dotenv import load_dotenv
     load_dotenv()
-except ImportError:
+except ImportError:  # pragma: no cover
     # python-dotenv not installed, environment variables must be set manually
     pass
 
@@ -81,8 +84,15 @@ class MercuryConfig:
             '(KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         )
 
-        self.timeout = timeout if timeout is not None else int(os.getenv('MERCURY_TIMEOUT', '20'))
-        self.max_redirects = max_redirects if max_redirects is not None else int(os.getenv('MERCURY_MAX_REDIRECTS', '5'))
+        try:
+            self.timeout = timeout if timeout is not None else int(os.getenv('MERCURY_TIMEOUT', '20'))
+        except ValueError:
+            raise MercuryConfigError("MERCURY_TIMEOUT must be a valid integer")
+
+        try:
+            self.max_redirects = max_redirects if max_redirects is not None else int(os.getenv('MERCURY_MAX_REDIRECTS', '5'))
+        except ValueError:
+            raise MercuryConfigError("MERCURY_MAX_REDIRECTS must be a valid integer")
 
         # API Configuration
         self.api_base_url = api_base_url or os.getenv(

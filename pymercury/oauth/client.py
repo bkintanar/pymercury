@@ -35,8 +35,15 @@ class OAuthTokens:
         self.expires_in = token_data.get('expires_in')  # seconds until expiration
         self.token_type = token_data.get('token_type', 'Bearer')
 
-        # Calculate expiration time
-        if self.expires_in:
+        # Honor a saved expires_at (ISO string) when reloading persisted tokens;
+        # otherwise compute from expires_in.
+        saved_expires_at = token_data.get('expires_at')
+        if saved_expires_at:
+            try:
+                self.expires_at = datetime.fromisoformat(saved_expires_at)
+            except (TypeError, ValueError):
+                self.expires_at = None
+        elif self.expires_in:
             self.expires_at = datetime.now() + timedelta(seconds=int(self.expires_in))
         else:
             self.expires_at = None
@@ -138,6 +145,16 @@ class MercuryOAuthClient:
         """Log message if verbose mode is enabled"""
         if self.verbose:
             print(message)
+
+    def close(self) -> None:
+        """Close the underlying HTTP session and release its connection pool."""
+        self.session.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
 
     def authenticate(self) -> OAuthTokens:
         """
@@ -284,7 +301,7 @@ class MercuryOAuthClient:
 
             return self._mercury_combined_signin_post(session, csrf_token, trans_id, verifier)
 
-        except (json.JSONDecodeError, Exception) as e:
+        except (json.JSONDecodeError, KeyError, TypeError) as e:
             self._log(f"  ❌ Error extracting settings: {e}")
             return None
 
@@ -316,7 +333,8 @@ class MercuryOAuthClient:
 
             auth_result = parse_mercury_json(auth_response.text)
             if not auth_result or auth_result.get('status') != '200':
-                self._log(f"  ❌ Fresh session auth failed: {auth_result}")
+                status = auth_result.get('status') if auth_result else None
+                self._log(f"  ❌ Fresh session auth failed: status={status}")
                 return None
 
             self._log("  ✅ Fresh session authenticated successfully")
@@ -347,18 +365,25 @@ class MercuryOAuthClient:
 
             if combined_response.status_code in [302, 303, 307, 308]:
                 self._log("  🎉 Got authorization redirect!")
-                auth_code = self._follow_redirects_for_code(combined_response)
+                auth_code = self._follow_redirects_for_code(combined_response, session)
                 tokens = self._exchange_code_for_token(auth_code, verifier)
 
                 return tokens
 
-        except Exception as e:
+        except (requests.exceptions.RequestException, json.JSONDecodeError, KeyError, ValueError) as e:
             self._log(f"  ❌ Error in CombinedSigninAndSignup POST: {e}")
 
         return None
 
-    def _follow_redirects_for_code(self, response: requests.Response) -> str:
-        """Follow redirects to find authorization code"""
+    def _follow_redirects_for_code(self, response: requests.Response, session: Optional[requests.Session] = None) -> str:
+        """Follow redirects to find authorization code.
+
+        The provided session (the fresh B2C session) carries the cookies needed
+        to follow Azure B2C's redirect chain. Falls back to the original session
+        for backward compatibility.
+        """
+        if session is None:
+            session = self.session
         current_response = response
 
         for i in range(self.config.max_redirects):
@@ -378,12 +403,12 @@ class MercuryOAuthClient:
                 self._log("✅ Authorization code found!")
                 return auth_code
 
-            # Follow the redirect
+            # Follow the redirect using the fresh session that holds B2C cookies
             next_url = location if location.startswith('http') else urljoin(current_response.url, location)
 
             try:
-                current_response = self.session.get(next_url, allow_redirects=False, timeout=10)
-            except Exception:
+                current_response = session.get(next_url, allow_redirects=False, timeout=10)
+            except requests.exceptions.RequestException:
                 break
 
         raise MercuryOAuthError("Could not find authorization code in redirects")
@@ -439,10 +464,10 @@ class MercuryOAuthClient:
                 tokens_data = refresh_response.json()
                 return OAuthTokens(tokens_data)
             else:
-                self._log(f"⚠️ Token refresh failed with status {refresh_response.status_code}: {refresh_response.text}")
+                self._log(f"⚠️ Token refresh failed with status {refresh_response.status_code}")
                 return None
 
-        except Exception as e:
+        except (requests.exceptions.RequestException, ValueError) as e:
             self._log(f"❌ Token refresh error: {e}")
             return None
 
@@ -457,12 +482,10 @@ class MercuryOAuthClient:
         """
         return self.refresh_tokens(refresh_token)
 
-    def login_or_refresh(self, email: str, password: str, existing_tokens: Optional[OAuthTokens] = None) -> OAuthTokens:
+    def login_or_refresh(self, existing_tokens: Optional[OAuthTokens] = None) -> OAuthTokens:
         """Smart login that uses refresh token if available and valid, otherwise performs full login
 
         Args:
-            email: User email
-            password: User password
             existing_tokens: Existing tokens to check for refresh capability
 
         Returns:
@@ -483,4 +506,4 @@ class MercuryOAuthClient:
 
         # Fall back to full login
         self._log("🔐 Performing full login...")
-        return self.login(email, password)
+        return self.authenticate()

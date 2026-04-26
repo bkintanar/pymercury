@@ -35,19 +35,6 @@ class MercuryAPIEndpoints:
             url += "?includeAll=false"
         return url
 
-    # Future endpoints can be added here
-    def account_bills(self, customer_id: str, account_id: str) -> str:
-        """Get account bills endpoint (future)"""
-        return f"{self.base_url}/customers/{customer_id}/accounts/{account_id}/bills"
-
-    def service_usage(self, customer_id: str, service_id: str) -> str:
-        """Get service usage endpoint (future)"""
-        return f"{self.base_url}/customers/{customer_id}/services/{service_id}/usage"
-
-    def service_meter_readings(self, customer_id: str, service_id: str) -> str:
-        """Get service meter readings endpoint (future)"""
-        return f"{self.base_url}/customers/{customer_id}/services/{service_id}/meter-readings"
-
     def electricity_meter_info(self, customer_id: str, account_id: str) -> str:
         """Get electricity meter info endpoint"""
         return f"{self.base_url}/customers/{customer_id}/accounts/{account_id}/services/electricity/meter-info"

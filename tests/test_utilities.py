@@ -8,7 +8,10 @@ from pymercury.utils import (
     generate_pkce_verifier,
     generate_pkce_challenge,
     decode_jwt_payload,
-    extract_mercury_ids_from_jwt
+    extract_mercury_ids_from_jwt,
+    extract_from_html,
+    parse_mercury_json,
+    extract_auth_code_from_url,
 )
 
 
@@ -215,25 +218,23 @@ class TestUtilities:
         assert str(customer_id) == '7334151'
         assert extracted['email'] == 'numeric@example.com'
 
-    def test_utility_function_error_handling(self):
-        """Test that utility functions handle errors gracefully"""
-        # Test PKCE challenge with invalid verifier
-        try:
-            challenge = generate_pkce_challenge("")
-            # Should either work or raise appropriate error
-            assert isinstance(challenge, str) or challenge is None
-        except Exception as e:
-            # Should be a reasonable error type
-            assert isinstance(e, (ValueError, TypeError))
+    def test_decode_jwt_payload_returns_none_for_non_3_part_token(self):
+        """Tokens that don't have exactly 3 dot-separated parts return None."""
+        assert decode_jwt_payload("only_one_part") is None
+        assert decode_jwt_payload("two.parts") is None
+        assert decode_jwt_payload("a.b.c.d.e") is None
 
-        # Test JWT decoding with invalid base64
-        try:
-            decoded = decode_jwt_payload("invalid_base64!")
-            # Should either work or raise appropriate error
-            assert decoded is None or isinstance(decoded, dict)
-        except Exception as e:
-            # Should be a reasonable error type
-            assert isinstance(e, (ValueError, TypeError))
+    def test_decode_jwt_payload_returns_none_for_invalid_base64(self):
+        """Payloads that fail to base64-decode or json-decode return None."""
+        # Middle segment is not valid base64-encoded JSON
+        assert decode_jwt_payload("aaa.!!!notbase64!!!.bbb") is None
+
+    def test_decode_jwt_payload_returns_none_when_payload_is_not_json(self):
+        """Even if base64 decodes, non-JSON payload returns None."""
+        import base64
+        not_json = base64.urlsafe_b64encode(b"plain text").rstrip(b"=").decode()
+        token = f"aaa.{not_json}.bbb"
+        assert decode_jwt_payload(token) is None
 
     def test_utility_functions_exist(self):
         """Test that all expected utility functions exist and are callable"""
@@ -266,3 +267,48 @@ class TestUtilities:
         ).decode('utf-8').rstrip('=')
 
         assert challenge == expected_challenge
+
+
+class TestExtractFromHtml:
+    def test_returns_match_group(self):
+        html = '<script>var data = {"csrf":"abc123"};</script>'
+        assert extract_from_html(html, r'"csrf":"([^"]*)"') == "abc123"
+
+    def test_raises_value_error_when_no_match(self):
+        with pytest.raises(ValueError, match="Could not extract"):
+            extract_from_html("<html></html>", r'"missing":"([^"]*)"')
+
+
+class TestParseMercuryJson:
+    def test_strict_json_with_nested_objects(self):
+        result = parse_mercury_json('{"status":"200","data":{"foo":"bar"}}')
+        assert result == {"status": "200", "data": {"foo": "bar"}}
+
+    def test_falls_back_to_regex_for_garbage_prefix(self):
+        result = parse_mercury_json('garbage prefix {"status":"200"} suffix')
+        assert result == {"status": "200"}
+
+    def test_returns_none_for_text_without_json(self):
+        assert parse_mercury_json("plain text, no braces") is None
+
+    def test_returns_none_when_braces_dont_parse(self):
+        # Braces present but content is not valid JSON
+        assert parse_mercury_json("{not valid json}{also bad}") is None
+
+    def test_handles_non_dict_top_level_json_via_regex_fallback(self):
+        # Top-level JSON array — strict load returns a list, not dict; falls
+        # back to regex which finds the inner flat object.
+        result = parse_mercury_json('[1, 2, 3, {"key": "val"}]')
+        assert result == {"key": "val"}
+
+
+class TestExtractAuthCodeFromUrl:
+    def test_extracts_code_param(self):
+        url = "https://myaccount.mercury.co.nz/?code=abc123&state=xyz"
+        assert extract_auth_code_from_url(url) == "abc123"
+
+    def test_returns_none_when_no_code(self):
+        assert extract_auth_code_from_url("https://example.com/callback") is None
+
+    def test_returns_none_for_empty_url(self):
+        assert extract_auth_code_from_url("") is None

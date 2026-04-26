@@ -34,7 +34,17 @@ def extract_from_html(html: str, pattern: str) -> str:
 
 
 def parse_mercury_json(text: str) -> Optional[Dict[Any, Any]]:
-    """Parse Mercury's malformed JSON responses"""
+    """Parse Mercury's malformed JSON responses.
+
+    Tries a strict json.loads first (handles nested objects); on failure,
+    falls back to scanning for the first flat JSON object in the text.
+    """
+    try:
+        result = json.loads(text)
+        if isinstance(result, dict):
+            return result
+    except (json.JSONDecodeError, TypeError):
+        pass
     for match in re.finditer(r'\{[^{}]*\}', text):
         try:
             return json.loads(match.group())

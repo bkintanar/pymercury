@@ -94,7 +94,7 @@ from .exceptions import (
 )
 
 # Version info
-__version__ = "1.0.0"
+__version__ = "1.0.5"
 __author__ = "Bertrand Kintanar <bertrand.kintanar@gmail.com>"
 __description__ = "Python library for Mercury.co.nz OAuth and API integration"
 

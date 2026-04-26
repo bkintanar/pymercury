@@ -106,6 +106,18 @@ class MercuryClient:
         if self.verbose:
             print(message)
 
+    def close(self) -> None:
+        """Close the OAuth and API HTTP sessions."""
+        self.oauth_client.close()
+        if self._api_client is not None:
+            self._api_client.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
     def login(self) -> OAuthTokens:
         """
         Perform OAuth login and initialize API client
@@ -144,7 +156,7 @@ class MercuryClient:
         self._log("🔄 Smart login: checking for refresh opportunities...")
 
         # Use the OAuth client's smart login method
-        self._tokens = self.oauth_client.login_or_refresh(self._email, self._password, existing_tokens)
+        self._tokens = self.oauth_client.login_or_refresh(existing_tokens)
 
         # Initialize/update API client with new access token
         self._api_client = MercuryAPIClient(self._tokens.access_token, self.config, self.verbose)

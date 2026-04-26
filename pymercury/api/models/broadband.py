@@ -40,13 +40,9 @@ class BroadbandUsage:
                 # Calculate usage days (days with non-zero usage)
                 self.usage_days = len([val for val in daily_values if val > 0])
 
-                # Get date range
-                if self.daily_usages:
-                    self.start_date = self.daily_usages[0].get('date')
-                    self.end_date = self.daily_usages[-1].get('date')
-                else:
-                    self.start_date = None
-                    self.end_date = None
+                # Get date range (we're already inside `if self.daily_usages:`)
+                self.start_date = self.daily_usages[0].get('date')
+                self.end_date = self.daily_usages[-1].get('date')
 
             except (ValueError, TypeError):
                 self.max_daily_usage = 0.0

@@ -6,6 +6,94 @@ Configuration system tests - converted from legacy test_mercury_library.py
 import pytest
 from pymercury.config import MercuryConfig, default_config
 from pymercury import MercuryAPIClient
+from pymercury.exceptions import MercuryConfigError
+
+
+# Every config-required field, with the env var name and the kwarg name.
+# Used for parametrized validation-branch tests.
+REQUIRED_FIELDS = [
+    ("client_id", "MERCURY_CLIENT_ID"),
+    ("redirect_uri", "MERCURY_REDIRECT_URI"),
+    ("base_url", "MERCURY_BASE_URL"),
+    ("policy", "MERCURY_POLICY"),
+    ("scope", "MERCURY_SCOPE"),
+    ("api_base_url", "MERCURY_API_BASE_URL"),
+    ("api_subscription_key", "MERCURY_API_SUBSCRIPTION_KEY"),
+]
+
+
+@pytest.mark.parametrize("field,env_var", REQUIRED_FIELDS)
+def test_validate_raises_when_required_field_empty(monkeypatch, field, env_var):
+    """Each required field has a dedicated _validate branch that raises
+    MercuryConfigError when the value is empty."""
+    # Setting the env var to "" forces os.getenv to return "" (not the
+    # hardcoded fallback default), so `client_id or os.getenv(...)` evaluates
+    # to "" and the _validate branch fires.
+    monkeypatch.setenv(env_var, "")
+    kwargs = {field: ""}
+    with pytest.raises(MercuryConfigError, match=field):
+        MercuryConfig(**kwargs)
+
+
+def test_validate_raises_when_timeout_is_zero():
+    with pytest.raises(MercuryConfigError, match="timeout must be positive"):
+        MercuryConfig(timeout=0)
+
+
+def test_validate_raises_when_timeout_is_negative():
+    with pytest.raises(MercuryConfigError, match="timeout must be positive"):
+        MercuryConfig(timeout=-5)
+
+
+def test_validate_raises_when_max_redirects_negative():
+    with pytest.raises(MercuryConfigError, match="max_redirects"):
+        MercuryConfig(max_redirects=-1)
+
+
+def test_invalid_timeout_env_var_raises_config_error(monkeypatch):
+    monkeypatch.setenv("MERCURY_TIMEOUT", "not-an-integer")
+    with pytest.raises(MercuryConfigError, match="MERCURY_TIMEOUT"):
+        MercuryConfig()
+
+
+def test_invalid_max_redirects_env_var_raises_config_error(monkeypatch):
+    monkeypatch.setenv("MERCURY_MAX_REDIRECTS", "abc")
+    with pytest.raises(MercuryConfigError, match="MERCURY_MAX_REDIRECTS"):
+        MercuryConfig()
+
+
+def test_dotenv_import_success_path():
+    """Reloading config with dotenv installed exercises the load_dotenv() success branch."""
+    import importlib
+    import sys
+
+    sys.modules.pop("pymercury.config", None)
+    cfg_mod = importlib.import_module("pymercury.config")
+    assert cfg_mod.default_config is not None
+
+
+def test_dotenv_import_failure_does_not_break_module(monkeypatch):
+    """If python-dotenv is not installed, config import must still work."""
+    import builtins
+    import importlib
+    import sys
+
+    real_import = builtins.__import__
+
+    def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "dotenv":
+            raise ImportError("simulated missing python-dotenv")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    sys.modules.pop("pymercury.config", None)
+    sys.modules.pop("dotenv", None)
+    cfg_mod = importlib.import_module("pymercury.config")
+    assert cfg_mod.default_config is not None
+    # Restore module for downstream tests.
+    monkeypatch.undo()
+    sys.modules.pop("pymercury.config", None)
+    importlib.import_module("pymercury.config")
 
 
 class TestConfiguration:

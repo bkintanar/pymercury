@@ -56,18 +56,14 @@ class ElectricitySummary:
         self.monthly_usage_consumption = self.monthly_summary.get('usageConsumption')
         self.monthly_note = self.monthly_summary.get('note')
 
-        # Cost components (calculate from daily data)
-        if weekly_usage:
-            total_daily_costs = sum(day.get('cost', 0) for day in weekly_usage)
-            avg_daily_cost = total_daily_costs / len(weekly_usage) if weekly_usage else 0
-            # Estimate components (Mercury.co.nz doesn't break these down separately in this endpoint)
-            self.daily_fixed_charge = avg_daily_cost * 0.3  # Rough estimate
-            self.variable_charges = weekly_usage  # Actual daily usage data
-            self.gst_amount = total_daily_costs * 0.15  # 15% GST estimate
-        else:
-            self.daily_fixed_charge = None
-            self.variable_charges = []
-            self.gst_amount = None
+        # Cost components — Mercury.co.nz does not break these down in this
+        # endpoint. Earlier versions of this library reported a 30%
+        # daily_fixed_charge and 15% GST estimate; both were unsourced
+        # placeholders and have been removed. Use ElectricityPlans for the
+        # actual fixed/variable rates.
+        self.daily_fixed_charge = None
+        self.variable_charges = weekly_usage if weekly_usage else []
+        self.gst_amount = None
 
         # Usage statistics (calculate from weekly data)
         if weekly_usage:
@@ -170,8 +166,10 @@ class ElectricityMeterReads:
 
         # Extract meter information
         self.meter_number = meter_data.get('meterNumber')
-        self.account_id = data.get('accountId')  # May be in wrapper
-        self.service_id = data.get('serviceId')  # May be in wrapper
+        # accountId/serviceId only exist when the caller wraps a raw list in
+        # a dict (api/client.py does this before constructing).
+        self.account_id = data.get('accountId') if isinstance(data, dict) else None
+        self.service_id = data.get('serviceId') if isinstance(data, dict) else None
 
         # Extract register information (Mercury.co.nz stores readings in registers)
         registers = meter_data.get('registers', [])
@@ -187,26 +185,14 @@ class ElectricityMeterReads:
         self.latest_reading_type = primary_register.get('lastReadType')
         self.register_number = primary_register.get('registerNumber')
 
-        # Mercury.co.nz doesn't provide previous reading in this endpoint,
-        # but we can estimate from historical data
+        # Mercury.co.nz does not return a previous reading or consumption value
+        # from this endpoint. Earlier versions of this library fabricated a
+        # consumption_kwh of 100 — this has been removed; values are None until
+        # historical data becomes available from another source.
         self.previous_reading_value = None
         self.previous_reading_date = None
         self.previous_reading_type = None
-
-        # Try to estimate consumption if we had historical data
-        # For now, just use the reading value as a reference
-        if self.latest_reading_value:
-            try:
-                # Convert reading to integer (Mercury.co.nz readings are often strings like "089698")
-                reading_int = int(self.latest_reading_value)
-                # For demo purposes, estimate previous reading as 100 kWh less
-                # (In real implementation, this would come from historical data)
-                self.previous_reading_value = str(reading_int - 100)
-                self.consumption_kwh = 100  # Estimated
-            except (ValueError, TypeError):
-                self.consumption_kwh = None
-        else:
-            self.consumption_kwh = None
+        self.consumption_kwh = None
 
         # Historical reads processing - use all registers
         self.historical_reads = []

@@ -3,7 +3,6 @@ include LICENSE
 include pyproject.toml
 include requirements.txt
 include mercury_examples.py
-include test_mercury_library.py
 recursive-include pymercury *.py
 recursive-include pymercury *.md
 global-exclude *.pyc

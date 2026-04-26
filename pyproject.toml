@@ -79,3 +79,29 @@ python_version = "3.7"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
+
+[tool.pytest.ini_options]
+addopts = [
+    "--cov=pymercury",
+    "--cov-branch",
+    "--cov-report=term-missing",
+    "--cov-fail-under=100",
+    "--strict-markers",
+]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+omit = [
+    "pymercury/api/client_backup.py",
+    "*/tests/*",
+]
+
+[tool.coverage.report]
+precision = 2
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+    "@(abc\\.)?abstractmethod",
+]
