@@ -9,6 +9,7 @@ from pymercury.api.models.base import (
     _extract_usage_arrays,
     _extract_usage_data,
     _emit_empty_usage_warning,
+    _envelope_present,
 )
 from pymercury.api.models.electricity import ElectricityUsage
 from pymercury.api.models.gas import GasUsage
@@ -100,6 +101,50 @@ class TestExtractUsageArraysNestedNonDict:
         # monthlySummary is a dict but its 'usage' is empty — loop continues
         # to next nested_key and ultimately returns [].
         assert _extract_usage_arrays({"monthlySummary": {"usage": []}}) == []
+
+
+class TestEnvelopePresent:
+    """Test the helper that distinguishes 'empty but recognized' from 'unrecognized'."""
+
+    def test_top_level_envelope_key_present_even_if_empty(self):
+        # 'usage' key with empty list — envelope IS recognized.
+        assert _envelope_present({"usage": []}) is True
+        # 'usage' key absent — not recognized.
+        assert _envelope_present({"unrelated": 1}) is False
+
+    def test_nested_summary_envelope_recognized(self):
+        # monthlySummary is a dict with 'usage' inside — recognized even if empty.
+        assert _envelope_present({"monthlySummary": {"usage": []}}) is True
+
+    def test_nested_summary_without_usage_key_not_recognized(self):
+        # monthlySummary present but lacks 'usage' inner — not recognized.
+        assert _envelope_present({"monthlySummary": {"otherStuff": []}}) is False
+
+    def test_non_dict_input_not_recognized(self):
+        assert _envelope_present("not a dict") is False
+        assert _envelope_present([1, 2, 3]) is False
+        assert _envelope_present(None) is False
+
+
+class TestServiceUsageWarningGating:
+    """Test that the empty-usage warning fires only when truly unrecognized."""
+
+    def test_warning_silent_when_envelope_present_but_empty(self, capsys):
+        # Mercury returned the canonical envelope but no data points.
+        # That's a normal "no readings in window" response — no warning.
+        ServiceUsage({"usage": [], "serviceType": "Gas"})
+        assert capsys.readouterr().err == ""
+
+    def test_warning_fires_when_no_envelope_recognized(self, capsys):
+        ServiceUsage({"completelyDifferentShape": "value"})
+        assert "ServiceUsage parsed 0 usage points" in capsys.readouterr().err
+
+    def test_warning_silent_for_subclass_construction(self, capsys):
+        # GasUsage / ElectricityUsage construction shouldn't double-fire the
+        # warning (avoids noise when get_gas_usage wraps ServiceUsage).
+        from pymercury.api.models.gas import GasUsage
+        GasUsage({"completelyDifferentShape": "value"})  # subclass — no warning
+        assert capsys.readouterr().err == ""
 
 
 class TestEmitEmptyUsageWarning:

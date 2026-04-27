@@ -400,10 +400,15 @@ def example_5a_gas_usage_analysis(tokens=None, api_client=None):
             print(f"⚠️ Gas content request failed: {e}")
 
         # 2. Daily Gas Usage
+        # Note: Most NZ piped-gas meters are read monthly (not in real-time
+        # like electricity smart meters), so daily/hourly windows are often
+        # empty even for active accounts. Try monthly for the richest data.
         print("\n🔥 Getting daily gas usage...")
         try:
             daily_gas = api_client.get_gas_usage(customer_id, account_id, service_id)
-            if daily_gas:
+            if daily_gas and daily_gas.data_points == 0:
+                print("ℹ️  No daily gas readings in window — typical for monthly-read meters; see Monthly section below.")
+            elif daily_gas:
                 print(f"✅ Daily Gas Usage Analysis:")
                 print(f"   Service Type: {daily_gas.service_type}")
                 print(f"   Usage Period: {daily_gas.usage_period}")
@@ -429,7 +434,9 @@ def example_5a_gas_usage_analysis(tokens=None, api_client=None):
         print("\n🔥 Getting hourly gas usage...")
         try:
             hourly_gas = api_client.get_gas_usage_hourly(customer_id, account_id, service_id)
-            if hourly_gas:
+            if hourly_gas and hourly_gas.data_points == 0:
+                print("ℹ️  No hourly gas readings — Mercury rarely exposes sub-monthly gas data.")
+            elif hourly_gas:
                 print(f"✅ Hourly Gas Usage Analysis:")
                 print(f"   Period: {hourly_gas.start_date} to {hourly_gas.end_date}")
                 print(f"   Total Usage: {hourly_gas.total_usage:.2f} units")

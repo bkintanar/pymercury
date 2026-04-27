@@ -45,6 +45,24 @@ def _extract_usage_arrays(data: Dict[str, Any]) -> List[Any]:
     return []
 
 
+def _envelope_present(data: Dict[str, Any]) -> bool:
+    """Check whether a known envelope key is present at top level — even if empty.
+
+    Used to distinguish "Mercury returned an empty usage array" (no warning
+    needed) from "Mercury returned a shape we don't recognize" (warn so the
+    user can see the actual top-level keys).
+    """
+    if not isinstance(data, dict):
+        return False
+    if any(k in data for k in _USAGE_ENVELOPE_KEYS):
+        return True
+    for nk in ('monthlySummary', 'weeklySummary', 'dailySummary', 'summary'):
+        nested = data.get(nk)
+        if isinstance(nested, dict) and 'usage' in nested:
+            return True
+    return False
+
+
 def _extract_usage_data(usage_arrays: List[Any]) -> List[Dict[str, Any]]:
     """From a list of usage groups (or a flat list of usage points), return
     the list of individual usage points. Handles three observed shapes:
@@ -101,10 +119,13 @@ class ServiceUsage:
         usage_arrays = _extract_usage_arrays(data)
         self.usage_data = _extract_usage_data(usage_arrays)
 
-        # Diagnostic: if a parse came up empty, emit one stderr line so users
-        # who run mercury_examples.py can see Mercury's real envelope shape
-        # without instrumenting the SDK manually.
-        if not self.usage_data:
+        # Diagnostic: if a parse came up empty AND we didn't recognize any
+        # envelope key, emit one stderr line so users can see Mercury's real
+        # envelope shape. Only fires from the base class (subclass __init__
+        # calls go silent — avoids double-firing when get_gas_usage wraps
+        # ServiceUsage as GasUsage). An empty-but-recognized envelope means
+        # Mercury returned no data for the window, not a parser bug — silent.
+        if not self.usage_data and not _envelope_present(data) and type(self) is ServiceUsage:
             _emit_empty_usage_warning(data)
 
         # Store all usage arrays for access to estimates, etc.
