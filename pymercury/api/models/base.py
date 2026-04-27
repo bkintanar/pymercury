@@ -5,7 +5,83 @@ Base Models for Mercury.co.nz API
 Contains shared base classes and common functionality.
 """
 
-from typing import Dict, Any
+import os
+import sys
+from typing import Dict, Any, List
+
+
+# Top-level envelope keys Mercury has been observed (or plausibly may) use
+# for usage data. Order matters: try the canonical 'usage' first to preserve
+# existing behavior, then alternatives.
+_USAGE_ENVELOPE_KEYS = (
+    'usage',
+    'monthlyUsage',
+    'hourlyUsage',
+    'dailyUsage',
+    'consumption',
+    'usageData',
+    'data',
+)
+
+
+def _extract_usage_arrays(data: Dict[str, Any]) -> List[Any]:
+    """Find the usage_arrays envelope in a Mercury usage response.
+
+    Mercury's electricity endpoint returns ``{"usage": [{"label":"actual","data":[...]}]}``.
+    Other intervals / services may use a different top-level key. This
+    helper scans known alternatives and returns the first non-empty list.
+    """
+    for key in _USAGE_ENVELOPE_KEYS:
+        candidate = data.get(key)
+        if isinstance(candidate, list) and candidate:
+            return candidate
+    # Some endpoints may put usage points under a nested summary key.
+    for nested_key in ('monthlySummary', 'weeklySummary', 'dailySummary', 'summary'):
+        nested = data.get(nested_key)
+        if isinstance(nested, dict):
+            inner = nested.get('usage')
+            if isinstance(inner, list) and inner:
+                return inner
+    return []
+
+
+def _extract_usage_data(usage_arrays: List[Any]) -> List[Dict[str, Any]]:
+    """From a list of usage groups (or a flat list of usage points), return
+    the list of individual usage points. Handles three observed shapes:
+
+    1. ``[{"label":"actual","data":[<points>]}, {"label":"estimate",...}]``
+       — pick the 'actual' group, fall back to first.
+    2. ``[{"label":"actual","data":[<points>]}]`` with only one group.
+    3. ``[<point>, <point>, ...]`` — a flat list with no group wrapper.
+    """
+    if not usage_arrays:
+        return []
+    first = usage_arrays[0]
+    # Shape 3: flat list of usage points (no label/data wrapper)
+    if isinstance(first, dict) and ('consumption' in first or 'usage' in first or 'date' in first):
+        # Heuristic: looks like a usage point already
+        if 'data' not in first or not isinstance(first.get('data'), list):
+            return [p for p in usage_arrays if isinstance(p, dict)]
+    # Shapes 1 & 2: groups with label + data
+    for group in usage_arrays:
+        if isinstance(group, dict) and group.get('label') == 'actual':
+            return group.get('data', []) or []
+    # Fallback: first group's data
+    if isinstance(first, dict):
+        return first.get('data', []) or []
+    return []
+
+
+def _emit_empty_usage_warning(data: Dict[str, Any]) -> None:
+    """When a 200 response yields no usage points, print one diagnostic line
+    so users can see Mercury's actual envelope. Suppress with
+    ``MERCURY_NO_USAGE_DIAG=1`` in the environment.
+    """
+    if os.environ.get('MERCURY_NO_USAGE_DIAG'):
+        return
+    keys = sorted(data.keys()) if isinstance(data, dict) else type(data).__name__
+    msg = f"⚠️ ServiceUsage parsed 0 usage points; Mercury response top-level keys = {keys}"
+    print(msg, file=sys.stderr)
 
 
 class ServiceUsage:
@@ -18,19 +94,18 @@ class ServiceUsage:
         self.start_date = data.get('startDate')
         self.end_date = data.get('endDate')
 
-        # Extract usage data from Mercury.co.nz API format
-        usage_arrays = data.get('usage', [])
-        self.usage_data = []
+        # Extract usage data from Mercury.co.nz API format. Mercury's gas and
+        # electricity responses can use different top-level envelope keys
+        # (e.g. 'usage' vs 'monthlyUsage'). _extract_usage_arrays scans
+        # known alternatives.
+        usage_arrays = _extract_usage_arrays(data)
+        self.usage_data = _extract_usage_data(usage_arrays)
 
-        # Mercury.co.nz returns usage in arrays with different labels (actual, estimate, etc.)
-        for usage_group in usage_arrays:
-            if usage_group.get('label') == 'actual':
-                self.usage_data = usage_group.get('data', [])
-                break
-
-        # If no 'actual' data found, use the first available group
-        if not self.usage_data and usage_arrays:
-            self.usage_data = usage_arrays[0].get('data', [])
+        # Diagnostic: if a parse came up empty, emit one stderr line so users
+        # who run mercury_examples.py can see Mercury's real envelope shape
+        # without instrumenting the SDK manually.
+        if not self.usage_data:
+            _emit_empty_usage_warning(data)
 
         # Store all usage arrays for access to estimates, etc.
         self.all_usage_arrays = usage_arrays

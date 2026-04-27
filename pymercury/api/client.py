@@ -674,6 +674,21 @@ class MercuryAPIClient:
             Default period is 2 days ending yesterday to get complete hourly data.
             Hourly data is typically not available for today until the day is complete.
         """
+        nz_timezone = timezone(timedelta(hours=12))
+        end_dt: Optional[datetime] = None
+        if end_date is None:
+            end_dt = (datetime.now(nz_timezone) - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+            end_date = quote(end_dt.isoformat())
+        if start_date is None:
+            try:
+                if end_dt is None:
+                    end_dt = datetime.fromisoformat(unquote(end_date))
+                start_dt = end_dt - timedelta(days=2)
+                start_date = quote(start_dt.isoformat())
+            except (TypeError, ValueError):
+                fallback_start = datetime.now(nz_timezone) - timedelta(days=3)
+                start_date = quote(fallback_start.isoformat())
+
         return self.get_gas_usage(customer_id, account_id, service_id,
                                  interval='hourly',
                                  start_date=start_date,
@@ -701,6 +716,21 @@ class MercuryAPIClient:
             Default period is 1 year ending today to get complete monthly usage trends.
             Monthly data provides long-term usage patterns and seasonal variations.
         """
+        nz_timezone = timezone(timedelta(hours=12))
+        end_dt: Optional[datetime] = None
+        if end_date is None:
+            end_dt = datetime.now(nz_timezone)
+            end_date = quote(end_dt.isoformat())
+        if start_date is None:
+            try:
+                if end_dt is None:
+                    end_dt = datetime.fromisoformat(unquote(end_date))
+                start_dt = end_dt - timedelta(days=365)
+                start_date = quote(start_dt.isoformat())
+            except (TypeError, ValueError):
+                fallback_start = datetime.now(nz_timezone) - timedelta(days=365)
+                start_date = quote(fallback_start.isoformat())
+
         return self.get_gas_usage(customer_id, account_id, service_id,
                                  interval='monthly',
                                  start_date=start_date,
