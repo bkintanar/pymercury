@@ -684,6 +684,78 @@ def test_get_gas_usage_monthly_delegates(requests_mock, api_client):
     assert isinstance(result, GasUsage)
 
 
+def test_get_gas_usage_hourly_explicit_dates(requests_mock, api_client):
+    """When BOTH dates are provided, the hourly default-computation branches
+    don't fire; the explicit dates flow through."""
+    requests_mock.get(
+        re.compile(r".*"),
+        json={"serviceType": "gas", "usagePeriod": "Hourly", "usage": []},
+    )
+    result = api_client.get_gas_usage_hourly(
+        "c1", "a1", "g1",
+        start_date=quote("2026-04-25T00:00:00+12:00"),
+        end_date=quote("2026-04-27T00:00:00+12:00"),
+    )
+    assert isinstance(result, GasUsage)
+
+
+def test_get_gas_usage_hourly_end_date_only(requests_mock, api_client):
+    """end_date provided, start_date None — exercises the parse-end_date branch."""
+    requests_mock.get(
+        re.compile(r".*"),
+        json={"serviceType": "gas", "usagePeriod": "Hourly", "usage": []},
+    )
+    result = api_client.get_gas_usage_hourly(
+        "c1", "a1", "g1",
+        end_date=quote("2026-04-27T00:00:00+12:00"),
+    )
+    assert isinstance(result, GasUsage)
+
+
+def test_get_gas_usage_hourly_fallback_on_bad_end_date(requests_mock, api_client):
+    """A garbage end_date triggers the fromisoformat ValueError fallback path."""
+    requests_mock.get(
+        re.compile(r".*"),
+        json={"serviceType": "gas", "usagePeriod": "Hourly", "usage": []},
+    )
+    result = api_client.get_gas_usage_hourly("c1", "a1", "g1", end_date="not-a-date")
+    assert isinstance(result, GasUsage)
+
+
+def test_get_gas_usage_monthly_explicit_dates(requests_mock, api_client):
+    requests_mock.get(
+        re.compile(r".*"),
+        json={"serviceType": "gas", "usagePeriod": "Monthly", "usage": []},
+    )
+    result = api_client.get_gas_usage_monthly(
+        "c1", "a1", "g1",
+        start_date=quote("2025-04-27T00:00:00+12:00"),
+        end_date=quote("2026-04-27T00:00:00+12:00"),
+    )
+    assert isinstance(result, GasUsage)
+
+
+def test_get_gas_usage_monthly_end_date_only(requests_mock, api_client):
+    requests_mock.get(
+        re.compile(r".*"),
+        json={"serviceType": "gas", "usagePeriod": "Monthly", "usage": []},
+    )
+    result = api_client.get_gas_usage_monthly(
+        "c1", "a1", "g1",
+        end_date=quote("2026-04-27T00:00:00+12:00"),
+    )
+    assert isinstance(result, GasUsage)
+
+
+def test_get_gas_usage_monthly_fallback_on_bad_end_date(requests_mock, api_client):
+    requests_mock.get(
+        re.compile(r".*"),
+        json={"serviceType": "gas", "usagePeriod": "Monthly", "usage": []},
+    )
+    result = api_client.get_gas_usage_monthly("c1", "a1", "g1", end_date="bogus")
+    assert isinstance(result, GasUsage)
+
+
 def test_get_broadband_usage(requests_mock, api_client, base_api_url):
     requests_mock.get(
         f"{base_api_url}/customers/c1/accounts/a1/services/fibre/b1",

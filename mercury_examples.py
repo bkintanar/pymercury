@@ -281,10 +281,25 @@ def example_5_electricity_usage_analysis(tokens=None, api_client=None):
             print(f"      Projected Usage: {electricity_summary.monthly_usage_consumption} kWh")
             if electricity_summary.monthly_note:
                 print(f"      Note: {electricity_summary.monthly_note}")
-            print(f"   💰 Cost Breakdown (Estimated):")
-            print(f"      Daily Fixed Charge: ${electricity_summary.daily_fixed_charge:.2f}")
-            print(f"      GST (15%): ${electricity_summary.gst_amount:.2f}")
-            print(f"      Average Daily Usage: {electricity_summary.average_daily_usage:.2f} kWh")
+            print(f"   💰 Cost Breakdown:")
+            # Mercury's electricity_summary endpoint does NOT break out fixed
+            # charge or GST; pymercury 1.1.0+ returns None for those (was a
+            # fabricated 30%/15% estimate before).
+            fc = electricity_summary.daily_fixed_charge
+            gst = electricity_summary.gst_amount
+            avg = electricity_summary.average_daily_usage
+            if fc is not None:
+                print(f"      Daily Fixed Charge: ${fc:.2f}")
+            else:
+                print(f"      Daily Fixed Charge: N/A (not broken out by API — see ElectricityPlans for actual)")
+            if gst is not None:
+                print(f"      GST (15%): ${gst:.2f}")
+            else:
+                print(f"      GST: N/A (not broken out by API)")
+            if avg is not None:
+                print(f"      Average Daily Usage: {avg:.2f} kWh")
+            else:
+                print(f"      Average Daily Usage: N/A")
 
         # 2. Daily Usage (last 14 days with temperature)
         print("\n📈 Getting daily electricity usage (last 14 days)...")

@@ -4,9 +4,123 @@ Unit tests for usage models in pymercury.api.models (base, electricity, gas)
 """
 
 import pytest
-from pymercury.api.models.base import ServiceUsage
+from pymercury.api.models.base import (
+    ServiceUsage,
+    _extract_usage_arrays,
+    _extract_usage_data,
+    _emit_empty_usage_warning,
+)
 from pymercury.api.models.electricity import ElectricityUsage
 from pymercury.api.models.gas import GasUsage
+
+
+class TestExtractUsageArrays:
+    """Test the envelope-detection helper that scans for the usage arrays."""
+
+    def test_canonical_usage_key(self):
+        data = {"usage": [{"label": "actual", "data": [{"consumption": 1}]}]}
+        assert _extract_usage_arrays(data) == data["usage"]
+
+    def test_alternative_top_level_keys(self):
+        # Mercury's gas response may use a different envelope key.
+        for key in ("monthlyUsage", "hourlyUsage", "dailyUsage", "consumption", "usageData", "data"):
+            data = {key: [{"consumption": 5, "date": "2026-01-01"}]}
+            assert _extract_usage_arrays(data) == data[key], f"failed for key {key}"
+
+    def test_nested_summary_usage(self):
+        # Some endpoints nest usage under a summary key (like electricity_summary).
+        data = {"monthlySummary": {"usage": [{"consumption": 7}]}}
+        assert _extract_usage_arrays(data) == [{"consumption": 7}]
+
+    def test_returns_empty_when_nothing_matches(self):
+        assert _extract_usage_arrays({"unrelated": "stuff"}) == []
+        assert _extract_usage_arrays({}) == []
+        # Empty list under a known key still returns []
+        assert _extract_usage_arrays({"usage": []}) == []
+
+    def test_returns_empty_when_value_is_not_a_list(self):
+        # Non-list value at envelope key should be skipped
+        assert _extract_usage_arrays({"usage": "not a list"}) == []
+
+
+class TestExtractUsageData:
+    """Test the usage-points extraction across the three observed shapes."""
+
+    def test_grouped_with_actual_label(self):
+        groups = [
+            {"label": "estimate", "data": [{"consumption": 1}]},
+            {"label": "actual", "data": [{"consumption": 10}, {"consumption": 20}]},
+        ]
+        assert _extract_usage_data(groups) == [{"consumption": 10}, {"consumption": 20}]
+
+    def test_grouped_without_actual_falls_back_to_first(self):
+        groups = [
+            {"label": "estimate", "data": [{"consumption": 5}]},
+            {"label": "forecast", "data": [{"consumption": 6}]},
+        ]
+        assert _extract_usage_data(groups) == [{"consumption": 5}]
+
+    def test_flat_list_of_usage_points(self):
+        # No label/data wrapper — just a list of usage points directly.
+        flat = [
+            {"date": "2026-01-01", "consumption": 5},
+            {"date": "2026-01-02", "consumption": 7},
+        ]
+        assert _extract_usage_data(flat) == flat
+
+    def test_empty_input(self):
+        assert _extract_usage_data([]) == []
+
+    def test_first_item_not_a_dict(self):
+        # Non-dict first element triggers the final fallback (returns []).
+        assert _extract_usage_data(["not a dict"]) == []
+
+    def test_first_item_dict_with_data_key_is_a_group(self):
+        # Heuristic: if first dict has 'data' as a list, treat as group.
+        groups = [{"label": "actual", "data": [{"consumption": 99}]}]
+        assert _extract_usage_data(groups) == [{"consumption": 99}]
+
+    def test_first_item_has_usage_keys_AND_data_list_treated_as_group(self):
+        # Edge case: a group dict that ALSO has 'date' or 'consumption' on it
+        # (some endpoints embed usage-point-like fields on the group). The
+        # heuristic should still treat it as a group because it has a 'data' list.
+        groups = [{"date": "2026-01-01", "data": [{"consumption": 42}]}]
+        # Falls through to the actual-label / first-group fallback.
+        assert _extract_usage_data(groups) == [{"consumption": 42}]
+
+
+class TestExtractUsageArraysNestedNonDict:
+    """Cover the `if isinstance(nested, dict)` False branch in _extract_usage_arrays."""
+
+    def test_nested_summary_key_is_not_a_dict(self):
+        # data['monthlySummary'] is a string, not a dict — the inner check skips it.
+        assert _extract_usage_arrays({"monthlySummary": "not a dict"}) == []
+
+    def test_nested_summary_dict_with_empty_usage_continues_loop(self):
+        # monthlySummary is a dict but its 'usage' is empty — loop continues
+        # to next nested_key and ultimately returns [].
+        assert _extract_usage_arrays({"monthlySummary": {"usage": []}}) == []
+
+
+class TestEmitEmptyUsageWarning:
+    """Test the diagnostic warning emitted when no usage parses."""
+
+    def test_warning_printed_to_stderr(self, capsys):
+        _emit_empty_usage_warning({"foo": 1, "bar": 2})
+        captured = capsys.readouterr()
+        # Stdout is clean; stderr has the diag line.
+        assert captured.out == ""
+        assert "ServiceUsage parsed 0 usage points" in captured.err
+        assert "['bar', 'foo']" in captured.err
+
+    def test_warning_suppressed_by_env_var(self, capsys, monkeypatch):
+        monkeypatch.setenv("MERCURY_NO_USAGE_DIAG", "1")
+        _emit_empty_usage_warning({"foo": 1})
+        assert capsys.readouterr().err == ""
+
+    def test_warning_handles_non_dict(self, capsys):
+        _emit_empty_usage_warning(["not a dict"])
+        assert "list" in capsys.readouterr().err
 
 
 class TestServiceUsage:
