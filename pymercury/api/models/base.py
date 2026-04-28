@@ -7,6 +7,7 @@ Contains shared base classes and common functionality.
 
 import os
 import sys
+from collections import defaultdict
 from typing import Dict, Any, List
 
 
@@ -245,11 +246,23 @@ class ServiceUsage:
         Recommended consumer surface for downstream tools (e.g., Home
         Assistant statistics importers) so they don't have to walk the
         parallel-pair structure themselves.
+
+        Edge cases:
+
+        - If a daily_usage entry has neither ``invoice_from``, ``invoice_to``
+          nor ``date``, its grouping key degenerates to ``('', '')`` and
+          multiple such entries collapse to one (the largest/actual wins).
+          Mercury's known shapes always include at least ``date``, so this
+          is a defensive note rather than an observed scenario.
+        - Sort key is lexicographic on the ``invoice_to`` (or ``date``)
+          string. Safe for Mercury's observed ``YYYY-MM-DD[Thh:mm:ss±HH:MM]``
+          shapes; would misorder if Mercury ever mixed local-offset and
+          UTC-encoded equivalents within the same response (not currently
+          observed).
         """
         if not self.daily_usage:
             return []
 
-        from collections import defaultdict
         grouped: Dict[tuple, List[Dict[str, Any]]] = defaultdict(list)
         for entry in self.daily_usage:
             key = (
