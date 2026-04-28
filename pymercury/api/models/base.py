@@ -68,7 +68,11 @@ def _extract_usage_data(usage_arrays: List[Any]) -> List[Dict[str, Any]]:
     the list of individual usage points. Handles three observed shapes:
 
     1. ``[{"label":"actual","data":[<points>]}, {"label":"estimate",...}]``
-       — pick the 'actual' group, fall back to first.
+       — merge both groups so estimated entries (Mercury's gap-fillers
+       between actual meter reads — common for piped gas read every 2-3
+       months) are visible to downstream consumers, not silently dropped.
+       Each merged point is tagged with ``is_estimated`` (bool) and
+       ``read_type`` (raw label string) so callers can distinguish.
     2. ``[{"label":"actual","data":[<points>]}]`` with only one group.
     3. ``[<point>, <point>, ...]`` — a flat list with no group wrapper.
     """
@@ -80,14 +84,25 @@ def _extract_usage_data(usage_arrays: List[Any]) -> List[Dict[str, Any]]:
         # Heuristic: looks like a usage point already
         if 'data' not in first or not isinstance(first.get('data'), list):
             return [p for p in usage_arrays if isinstance(p, dict)]
-    # Shapes 1 & 2: groups with label + data
-    for group in usage_arrays:
-        if isinstance(group, dict) and group.get('label') == 'actual':
-            return group.get('data', []) or []
-    # Fallback: first group's data
-    if isinstance(first, dict):
-        return first.get('data', []) or []
-    return []
+    # Shapes 1 & 2: groups with label + data. Merge every group's points
+    # so estimated readings are kept alongside actuals, then sort by date
+    # so the merged series reads chronologically.
+    groups_with_data = [
+        g for g in usage_arrays
+        if isinstance(g, dict) and isinstance(g.get('data'), list)
+    ]
+    merged: List[Dict[str, Any]] = []
+    for group in groups_with_data:
+        label = group.get('label')
+        for point in group.get('data', []) or []:
+            if not isinstance(point, dict):
+                continue
+            tagged = dict(point)
+            tagged.setdefault('is_estimated', label == 'estimate')
+            tagged.setdefault('read_type', label)
+            merged.append(tagged)
+    merged.sort(key=lambda p: p.get('date') or '')
+    return merged
 
 
 def _emit_empty_usage_warning(data: Dict[str, Any]) -> None:
@@ -174,7 +189,9 @@ class ServiceUsage:
                 'cost': usage_point.get('cost'),
                 'free_power': usage_point.get('freePower'),
                 'invoice_from': usage_point.get('invoiceFrom'),
-                'invoice_to': usage_point.get('invoiceTo')
+                'invoice_to': usage_point.get('invoiceTo'),
+                'is_estimated': bool(usage_point.get('is_estimated', False)),
+                'read_type': usage_point.get('read_type'),
             }
             self.daily_usage.append(daily_info)
 

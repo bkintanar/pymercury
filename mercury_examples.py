@@ -323,7 +323,8 @@ def example_5_electricity_usage_analysis(tokens=None, api_client=None):
             print(f"   📋 Sample Daily Breakdown (last 3 days):")
             for i, day in enumerate(daily_usage.daily_usage[-3:], 1):
                 date_str = day['date'][:10] if day['date'] else 'Unknown'
-                print(f"      {i}. {date_str}: {day['consumption']:.2f} kWh (${day['cost']:.2f})")
+                marker = ' (estimated)' if day.get('is_estimated') else ''
+                print(f"      {i}. {date_str}: {day['consumption']:.2f} kWh{marker} (${day['cost']:.2f})")
 
         # 3. Hourly Usage (last 2 days ending yesterday)
         print("\n⏰ Getting hourly electricity usage (2 days ending yesterday)...")
@@ -424,7 +425,8 @@ def example_5a_gas_usage_analysis(tokens=None, api_client=None):
                 print(f"   📋 Sample Daily Breakdown (last 3 days):")
                 for i, day in enumerate(daily_gas.daily_usage[-3:], 1):
                     date_str = day['date'][:10] if day['date'] else 'Unknown'
-                    print(f"      {i}. {date_str}: {day['consumption']:.2f} units (${day['cost']:.2f})")
+                    marker = ' (estimated)' if day.get('is_estimated') else ''
+                    print(f"      {i}. {date_str}: {day['consumption']:.2f} units{marker} (${day['cost']:.2f})")
             else:
                 print(f"⚠️ Daily gas usage data not available")
         except Exception as e:
