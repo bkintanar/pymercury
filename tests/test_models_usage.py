@@ -571,3 +571,108 @@ class TestUsageComparison:
             assert usage.max_daily_usage == 20.0
             assert usage.min_daily_usage == 10.0
             assert usage.average_daily_usage == 15.0
+
+
+class TestGasMonthlyB3Regression:
+    """Regression test for the user-reported 158240 vs 460 anomaly.
+
+    The original report (investigation-gas-bad-values-and-missing-estimates.md):
+      - 2026-03-27 displayed as 158240 kWh in pymercury vs 460 kWh on the
+        Mercury dashboard (~344x error).
+      - 2026-02-26 (estimated, 397 kWh) missing from output entirely.
+      - 2026-01-30 correct.
+
+    Hypothesis B3 from the investigation: Mercury emits a third group
+    (label='summary' or 'forecast') containing a year-to-date totalizer
+    of 158240, and the SDK was either reading it as the only group or
+    polluting the merged series.
+
+    This test pins the user's specific values into a synthetic B3 shape
+    and asserts the parser:
+      1. Skips the summary/forecast totalizer group entirely.
+      2. Merges actual + estimate groups, sorted by date.
+      3. Tags estimated entries with is_estimated=True.
+      4. Never produces 158240 in usage_data.
+    """
+
+    def test_summary_group_with_totalizer_is_skipped(self):
+        """The B3 shape: actual + estimate + summary; summary is skipped."""
+        data = {
+            'serviceType': 'Gas',
+            'usagePeriod': 'Monthly',
+            'usage': [
+                {
+                    'label': 'actual',
+                    'data': [
+                        {'date': '2026-01-30', 'consumption': 350.0, 'cost': 45.0},
+                        {'date': '2026-03-27', 'consumption': 460.0, 'cost': 60.0},
+                    ],
+                },
+                {
+                    'label': 'estimate',
+                    'data': [
+                        {'date': '2026-02-26', 'consumption': 397.0, 'cost': 49.5},
+                    ],
+                },
+                {
+                    'label': 'summary',
+                    'data': [
+                        # Year-to-date totalizer that previously polluted output.
+                        {'date': '2026-03-27', 'consumption': 158240.0, 'cost': 0.0},
+                    ],
+                },
+            ],
+        }
+
+        usage = GasUsage(data)
+
+        # Summary group skipped → only 3 points (2 actual + 1 estimate).
+        assert usage.data_points == 3
+        consumptions = [p['consumption'] for p in usage.usage_data]
+        assert 158240.0 not in consumptions, (
+            "Summary group's totalizer must be skipped, not merged into usage_data"
+        )
+
+        # Merged + sorted by date.
+        assert [p['date'] for p in usage.usage_data] == [
+            '2026-01-30', '2026-02-26', '2026-03-27'
+        ]
+
+        # 27 March shows the real per-period delta, NOT the cumulative totalizer.
+        mar = next(p for p in usage.daily_usage if p['date'] == '2026-03-27')
+        assert mar['consumption'] == 460.0
+        assert mar['is_estimated'] is False
+        assert mar['read_type'] == 'actual'
+
+        # 26 Feb estimate is preserved and tagged.
+        feb = next(p for p in usage.daily_usage if p['date'] == '2026-02-26')
+        assert feb['consumption'] == 397.0
+        assert feb['is_estimated'] is True
+        assert feb['read_type'] == 'estimate'
+
+        # 30 Jan unchanged.
+        jan = next(p for p in usage.daily_usage if p['date'] == '2026-01-30')
+        assert jan['consumption'] == 350.0
+        assert jan['is_estimated'] is False
+
+        # Stats reconcile to actual + estimate ONLY (no totalizer pollution).
+        assert usage.total_usage == 350.0 + 397.0 + 460.0
+        assert usage.max_daily_usage == 460.0
+        assert usage.min_daily_usage == 350.0
+
+    def test_forecast_group_is_also_skipped(self):
+        """Variant of B3 where the polluting label is 'forecast'."""
+        data = {
+            'usage': [
+                {'label': 'actual', 'data': [
+                    {'date': '2026-03-27', 'consumption': 460.0}
+                ]},
+                {'label': 'forecast', 'data': [
+                    {'date': '2026-04-30', 'consumption': 999.0}
+                ]},
+            ]
+        }
+        usage = GasUsage(data)
+        assert usage.data_points == 1
+        assert usage.usage_data[0]['consumption'] == 460.0
+        assert 999.0 not in [p['consumption'] for p in usage.usage_data]

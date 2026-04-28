@@ -454,12 +454,24 @@ def example_5a_gas_usage_analysis(tokens=None, api_client=None):
         print("\n🔥 Getting monthly gas usage...")
         try:
             monthly_gas = api_client.get_gas_usage_monthly(customer_id, account_id, service_id)
-            if monthly_gas:
+            if monthly_gas and monthly_gas.data_points:
                 print(f"✅ Monthly Gas Usage Analysis:")
                 print(f"   Period: {monthly_gas.start_date} to {monthly_gas.end_date}")
                 print(f"   Total Usage: {monthly_gas.total_usage:.2f} units")
                 print(f"   Monthly Data Points: {monthly_gas.data_points}")
-                print(f"   Average Monthly: {monthly_gas.average_daily_usage * 30:.2f} units (estimated)")
+                # average_daily_usage is total / data_points; on a monthly
+                # interval, each data point IS a month, so it's already the
+                # monthly average — no *30 multiplier.
+                print(f"   Average per Month: {monthly_gas.average_daily_usage:.2f} units")
+                print(f"   📋 Sample Monthly Breakdown (last 6 months):")
+                for i, day in enumerate(monthly_gas.daily_usage[-6:], 1):
+                    date_str = day['date'][:10] if day.get('date') else 'Unknown'
+                    consumption = day.get('consumption') or 0
+                    cost = day.get('cost') or 0
+                    marker = ' (estimated)' if day.get('is_estimated') else ''
+                    print(f"      {i}. {date_str}: {consumption:.2f} units{marker} (${cost:.2f})")
+            elif monthly_gas:
+                print(f"⚠️ Monthly gas usage returned no data points (window may be empty)")
             else:
                 print(f"⚠️ Monthly gas usage data not available")
         except Exception as e:
