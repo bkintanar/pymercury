@@ -47,19 +47,52 @@ class TestExtractUsageArrays:
 class TestExtractUsageData:
     """Test the usage-points extraction across the three observed shapes."""
 
-    def test_grouped_with_actual_label(self):
+    def test_grouped_merges_actual_and_estimate(self):
+        # Both groups are kept; each point is tagged with is_estimated
+        # and read_type so callers can distinguish actuals from estimates.
         groups = [
-            {"label": "estimate", "data": [{"consumption": 1}]},
-            {"label": "actual", "data": [{"consumption": 10}, {"consumption": 20}]},
+            {"label": "estimate", "data": [{"consumption": 1, "date": "2026-02-01"}]},
+            {"label": "actual", "data": [{"consumption": 10, "date": "2026-01-01"},
+                                         {"consumption": 20, "date": "2026-03-01"}]},
         ]
-        assert _extract_usage_data(groups) == [{"consumption": 10}, {"consumption": 20}]
+        result = _extract_usage_data(groups)
+        # Merged + sorted by date.
+        assert [p["date"] for p in result] == ["2026-01-01", "2026-02-01", "2026-03-01"]
+        assert [p["consumption"] for p in result] == [10, 1, 20]
+        # Estimate point tagged.
+        feb = next(p for p in result if p["date"] == "2026-02-01")
+        assert feb["is_estimated"] is True
+        assert feb["read_type"] == "estimate"
+        # Actual points tagged is_estimated=False.
+        for d in ("2026-01-01", "2026-03-01"):
+            actual = next(p for p in result if p["date"] == d)
+            assert actual["is_estimated"] is False
+            assert actual["read_type"] == "actual"
 
-    def test_grouped_without_actual_falls_back_to_first(self):
+    def test_grouped_unknown_labels_are_skipped(self):
+        # Only actual/estimate/estimated (or unlabeled) groups are merged.
+        # Labels like 'forecast'/'summary' carry totalizers or projections,
+        # not per-period readings, so they're skipped to avoid polluting
+        # the merged series with cumulative numbers.
         groups = [
-            {"label": "estimate", "data": [{"consumption": 5}]},
-            {"label": "forecast", "data": [{"consumption": 6}]},
+            {"label": "estimate", "data": [{"consumption": 5, "date": "2026-01-01"}]},
+            {"label": "forecast", "data": [{"consumption": 6, "date": "2026-02-01"}]},
+            {"label": "summary",  "data": [{"consumption": 999, "date": "2026-03-01"}]},
         ]
-        assert _extract_usage_data(groups) == [{"consumption": 5}]
+        result = _extract_usage_data(groups)
+        assert len(result) == 1
+        assert result[0]["read_type"] == "estimate"
+        assert result[0]["is_estimated"] is True
+
+    def test_grouped_estimated_label_variant_also_recognized(self):
+        # Mercury may use the past-tense 'estimated' instead of 'estimate'.
+        groups = [
+            {"label": "estimated", "data": [{"consumption": 5, "date": "2026-01-01"}]},
+        ]
+        result = _extract_usage_data(groups)
+        assert len(result) == 1
+        assert result[0]["is_estimated"] is True
+        assert result[0]["read_type"] == "estimated"
 
     def test_flat_list_of_usage_points(self):
         # No label/data wrapper — just a list of usage points directly.
@@ -79,15 +112,37 @@ class TestExtractUsageData:
     def test_first_item_dict_with_data_key_is_a_group(self):
         # Heuristic: if first dict has 'data' as a list, treat as group.
         groups = [{"label": "actual", "data": [{"consumption": 99}]}]
-        assert _extract_usage_data(groups) == [{"consumption": 99}]
+        result = _extract_usage_data(groups)
+        assert len(result) == 1
+        assert result[0]["consumption"] == 99
+        assert result[0]["is_estimated"] is False
+        assert result[0]["read_type"] == "actual"
 
     def test_first_item_has_usage_keys_AND_data_list_treated_as_group(self):
         # Edge case: a group dict that ALSO has 'date' or 'consumption' on it
         # (some endpoints embed usage-point-like fields on the group). The
         # heuristic should still treat it as a group because it has a 'data' list.
         groups = [{"date": "2026-01-01", "data": [{"consumption": 42}]}]
-        # Falls through to the actual-label / first-group fallback.
-        assert _extract_usage_data(groups) == [{"consumption": 42}]
+        result = _extract_usage_data(groups)
+        assert len(result) == 1
+        assert result[0]["consumption"] == 42
+        # No 'label' on the group → read_type is None, is_estimated stays False.
+        assert result[0]["is_estimated"] is False
+        assert result[0]["read_type"] is None
+
+    def test_non_dict_points_inside_group_data_are_skipped(self):
+        # A group's 'data' list may contain non-dict junk (defensive against
+        # malformed payloads); those entries are skipped, valid points remain.
+        groups = [
+            {"label": "actual", "data": [
+                {"consumption": 10, "date": "2026-01-01"},
+                "garbage",
+                None,
+                {"consumption": 20, "date": "2026-01-02"},
+            ]}
+        ]
+        result = _extract_usage_data(groups)
+        assert [p["consumption"] for p in result] == [10, 20]
 
 
 class TestExtractUsageArraysNestedNonDict:
@@ -205,21 +260,27 @@ class TestServiceUsage:
         assert abs(usage.average_daily_usage - 10.3) < 0.01  # 30.9 / 3 (handle floating point precision)
 
     def test_multiple_usage_arrays(self):
-        """Test ServiceUsage with multiple usage arrays (actual, estimate)"""
+        """Both actual and estimate groups are merged and tagged.
+
+        Mercury's piped-gas series interleaves estimated months between
+        actual meter reads (typical for non-smart gas meters in NZ).
+        Dropping estimates would punch holes in the user's billed series.
+        """
         data = {
             'serviceType': 'Gas',
-            'usagePeriod': 'Daily',
+            'usagePeriod': 'Monthly',
             'usage': [
                 {
                     'label': 'estimate',
                     'data': [
-                        {'date': '2025-01-01', 'consumption': 5.0, 'cost': 2.5}
+                        {'date': '2026-02-26', 'consumption': 397.0, 'cost': 49.5}
                     ]
                 },
                 {
                     'label': 'actual',
                     'data': [
-                        {'date': '2025-01-01', 'consumption': 10.0, 'cost': 5.0}
+                        {'date': '2026-01-30', 'consumption': 350.0, 'cost': 45.0},
+                        {'date': '2026-03-27', 'consumption': 460.0, 'cost': 60.0},
                     ]
                 }
             ]
@@ -227,14 +288,28 @@ class TestServiceUsage:
 
         usage = ServiceUsage(data)
 
-        # Should prefer 'actual' data
-        assert len(usage.usage_data) == 1
-        assert usage.usage_data[0]['consumption'] == 10.0
-        assert usage.total_usage == 10.0
+        # Merged + sorted chronologically.
+        assert len(usage.usage_data) == 3
+        assert [p['date'] for p in usage.usage_data] == [
+            '2026-01-30', '2026-02-26', '2026-03-27'
+        ]
+        # Estimate tagged.
+        feb = next(p for p in usage.usage_data if p['date'] == '2026-02-26')
+        assert feb['is_estimated'] is True
+        assert feb['read_type'] == 'estimate'
+        assert feb['consumption'] == 397.0
+        # Stats include both actual and estimate consumption.
+        assert usage.total_usage == 350.0 + 397.0 + 460.0
+        assert usage.total_cost == 45.0 + 49.5 + 60.0
+        assert usage.max_daily_usage == 460.0
+        assert usage.min_daily_usage == 350.0
+        # daily_usage exposes the flag so downstream callers can render it.
+        assert any(d['is_estimated'] for d in usage.daily_usage)
+        assert sum(1 for d in usage.daily_usage if not d['is_estimated']) == 2
         assert len(usage.all_usage_arrays) == 2
 
     def test_no_actual_data(self):
-        """Test ServiceUsage when no 'actual' data available"""
+        """When only 'estimate' is present, points are kept and tagged."""
         data = {
             'serviceType': 'Electricity',
             'usage': [
@@ -249,9 +324,10 @@ class TestServiceUsage:
 
         usage = ServiceUsage(data)
 
-        # Should use first available array when no 'actual' found
         assert len(usage.usage_data) == 1
         assert usage.usage_data[0]['consumption'] == 5.0
+        assert usage.usage_data[0]['is_estimated'] is True
+        assert usage.usage_data[0]['read_type'] == 'estimate'
         assert usage.total_usage == 5.0
 
     def test_empty_usage_data(self):
