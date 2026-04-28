@@ -84,12 +84,22 @@ def _extract_usage_data(usage_arrays: List[Any]) -> List[Dict[str, Any]]:
         # Heuristic: looks like a usage point already
         if 'data' not in first or not isinstance(first.get('data'), list):
             return [p for p in usage_arrays if isinstance(p, dict)]
-    # Shapes 1 & 2: groups with label + data. Merge every group's points
-    # so estimated readings are kept alongside actuals, then sort by date
-    # so the merged series reads chronologically.
+    # Shapes 1 & 2: groups with label + data. Merge ONLY groups whose
+    # label is a known per-period reading source (actual / estimate /
+    # estimated, or no label at all). Skip groups labeled 'summary',
+    # 'forecast', 'projected', etc. — those carry totalizers or
+    # forward-looking values, not per-period readings, and would pollute
+    # the merged series with cumulative-style numbers (the suspected
+    # cause of the unrelated 158240-vs-460 anomaly being investigated
+    # separately). A conservative allowlist matches the prior code's
+    # behavior of only consuming 'actual' while now also keeping
+    # 'estimate' for the dropped-estimates fix.
+    known_data_labels = {'actual', 'estimate', 'estimated'}
     groups_with_data = [
         g for g in usage_arrays
-        if isinstance(g, dict) and isinstance(g.get('data'), list)
+        if isinstance(g, dict)
+        and isinstance(g.get('data'), list)
+        and (g.get('label') is None or g.get('label') in known_data_labels)
     ]
     merged: List[Dict[str, Any]] = []
     for group in groups_with_data:
@@ -98,7 +108,10 @@ def _extract_usage_data(usage_arrays: List[Any]) -> List[Dict[str, Any]]:
             if not isinstance(point, dict):
                 continue
             tagged = dict(point)
-            tagged.setdefault('is_estimated', label == 'estimate')
+            # setdefault: a server-sent 'is_estimated' on the point wins
+            # over the group label. Today no Mercury fixture does this;
+            # the path is intentional forward-compat for a future shape.
+            tagged.setdefault('is_estimated', label in ('estimate', 'estimated'))
             tagged.setdefault('read_type', label)
             merged.append(tagged)
     merged.sort(key=lambda p: p.get('date') or '')

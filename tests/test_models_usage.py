@@ -69,19 +69,30 @@ class TestExtractUsageData:
             assert actual["is_estimated"] is False
             assert actual["read_type"] == "actual"
 
-    def test_grouped_unknown_labels_are_kept_as_not_estimated(self):
-        # Labels other than 'estimate' are preserved on read_type but
-        # is_estimated stays False — only 'estimate' triggers the flag.
+    def test_grouped_unknown_labels_are_skipped(self):
+        # Only actual/estimate/estimated (or unlabeled) groups are merged.
+        # Labels like 'forecast'/'summary' carry totalizers or projections,
+        # not per-period readings, so they're skipped to avoid polluting
+        # the merged series with cumulative numbers.
         groups = [
             {"label": "estimate", "data": [{"consumption": 5, "date": "2026-01-01"}]},
             {"label": "forecast", "data": [{"consumption": 6, "date": "2026-02-01"}]},
+            {"label": "summary",  "data": [{"consumption": 999, "date": "2026-03-01"}]},
         ]
         result = _extract_usage_data(groups)
-        assert len(result) == 2
-        forecast = next(p for p in result if p["read_type"] == "forecast")
-        assert forecast["is_estimated"] is False
-        estimate = next(p for p in result if p["read_type"] == "estimate")
-        assert estimate["is_estimated"] is True
+        assert len(result) == 1
+        assert result[0]["read_type"] == "estimate"
+        assert result[0]["is_estimated"] is True
+
+    def test_grouped_estimated_label_variant_also_recognized(self):
+        # Mercury may use the past-tense 'estimated' instead of 'estimate'.
+        groups = [
+            {"label": "estimated", "data": [{"consumption": 5, "date": "2026-01-01"}]},
+        ]
+        result = _extract_usage_data(groups)
+        assert len(result) == 1
+        assert result[0]["is_estimated"] is True
+        assert result[0]["read_type"] == "estimated"
 
     def test_flat_list_of_usage_points(self):
         # No label/data wrapper — just a list of usage points directly.
@@ -290,6 +301,8 @@ class TestServiceUsage:
         # Stats include both actual and estimate consumption.
         assert usage.total_usage == 350.0 + 397.0 + 460.0
         assert usage.total_cost == 45.0 + 49.5 + 60.0
+        assert usage.max_daily_usage == 460.0
+        assert usage.min_daily_usage == 350.0
         # daily_usage exposes the flag so downstream callers can render it.
         assert any(d['is_estimated'] for d in usage.daily_usage)
         assert sum(1 for d in usage.daily_usage if not d['is_estimated']) == 2
