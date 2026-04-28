@@ -676,3 +676,151 @@ class TestGasMonthlyB3Regression:
         assert usage.data_points == 1
         assert usage.usage_data[0]['consumption'] == 460.0
         assert 999.0 not in [p['consumption'] for p in usage.usage_data]
+
+
+class TestConsumptionPeriods:
+    """Tests for ServiceUsage.consumption_periods — the collapsed-pair view.
+
+    Mercury returns each billing period as two parallel entries: one in
+    'estimate', one in 'actual', with one zero and one non-zero per pair.
+    consumption_periods collapses the pair to one entry, preferring the
+    non-zero value (preferring actual on ties). Downstream consumers (HA
+    statistics, reporting tools) can iterate consumption_periods directly
+    without bucketize-and-overwrite logic.
+
+    Reference values pinned from the live API capture on 2026-04-28
+    (sanitized) — see investigation-gas-164220-ha-recurrence.md.
+    """
+
+    @pytest.fixture
+    def real_gas_monthly_response(self):
+        # 10 billing periods × 2 groups = 20 entries.
+        # Values match the user's actual account at the time of capture.
+        return {
+            'serviceType': 'Gas',
+            'usagePeriod': 'Monthly',
+            'usage': [
+                {'label': 'estimate', 'data': [
+                    {'date': '2025-07-01', 'invoiceFrom': '2025-06-14', 'invoiceTo': '2025-07-01', 'consumption': 0,   'cost': 0},
+                    {'date': '2025-07-30', 'invoiceFrom': '2025-07-02', 'invoiceTo': '2025-07-30', 'consumption': 517, 'cost': 145.86},
+                    {'date': '2025-08-29', 'invoiceFrom': '2025-07-31', 'invoiceTo': '2025-08-29', 'consumption': 0,   'cost': 0},
+                    {'date': '2025-09-30', 'invoiceFrom': '2025-08-30', 'invoiceTo': '2025-09-30', 'consumption': 571, 'cost': 183.68},
+                    {'date': '2025-10-30', 'invoiceFrom': '2025-10-01', 'invoiceTo': '2025-10-30', 'consumption': 0,   'cost': 0},
+                    {'date': '2025-11-27', 'invoiceFrom': '2025-10-31', 'invoiceTo': '2025-11-27', 'consumption': 0,   'cost': 0},
+                    {'date': '2025-12-27', 'invoiceFrom': '2025-11-28', 'invoiceTo': '2025-12-27', 'consumption': 493, 'cost': 165.11},
+                    {'date': '2026-01-30', 'invoiceFrom': '2025-12-28', 'invoiceTo': '2026-01-30', 'consumption': 0,   'cost': 0},
+                    {'date': '2026-02-26', 'invoiceFrom': '2026-01-31', 'invoiceTo': '2026-02-26', 'consumption': 397, 'cost': 139.20},
+                    {'date': '2026-03-27', 'invoiceFrom': '2026-02-27', 'invoiceTo': '2026-03-27', 'consumption': 0,   'cost': 0},
+                ]},
+                {'label': 'actual', 'data': [
+                    {'date': '2025-07-01', 'invoiceFrom': '2025-06-14', 'invoiceTo': '2025-07-01', 'consumption': 324, 'cost': 91.08},
+                    {'date': '2025-07-30', 'invoiceFrom': '2025-07-02', 'invoiceTo': '2025-07-30', 'consumption': 0,   'cost': 0},
+                    {'date': '2025-08-29', 'invoiceFrom': '2025-07-31', 'invoiceTo': '2025-08-29', 'consumption': 539, 'cost': 151.61},
+                    {'date': '2025-09-30', 'invoiceFrom': '2025-08-30', 'invoiceTo': '2025-09-30', 'consumption': 0,   'cost': 0},
+                    {'date': '2025-10-30', 'invoiceFrom': '2025-10-01', 'invoiceTo': '2025-10-30', 'consumption': 635, 'cost': 193.68},
+                    {'date': '2025-11-27', 'invoiceFrom': '2025-10-31', 'invoiceTo': '2025-11-27', 'consumption': 463, 'cost': 154.67},
+                    {'date': '2025-12-27', 'invoiceFrom': '2025-11-28', 'invoiceTo': '2025-12-27', 'consumption': 0,   'cost': 0},
+                    {'date': '2026-01-30', 'invoiceFrom': '2025-12-28', 'invoiceTo': '2026-01-30', 'consumption': 443, 'cost': 163.84},
+                    {'date': '2026-02-26', 'invoiceFrom': '2026-01-31', 'invoiceTo': '2026-02-26', 'consumption': 0,   'cost': 0},
+                    {'date': '2026-03-27', 'invoiceFrom': '2026-02-27', 'invoiceTo': '2026-03-27', 'consumption': 460, 'cost': 156.28},
+                ]},
+            ],
+        }
+
+    def test_collapses_to_one_entry_per_period(self, real_gas_monthly_response):
+        usage = GasUsage(real_gas_monthly_response)
+        assert len(usage.daily_usage) == 20
+        assert len(usage.consumption_periods) == 10
+
+    def test_consumption_periods_sum_matches_total_usage(self, real_gas_monthly_response):
+        # Iterating consumption_periods gives the SAME total without
+        # double-counting or losing values to the pair-overwrite trap.
+        usage = GasUsage(real_gas_monthly_response)
+        period_sum = sum(p.get('consumption') or 0 for p in usage.consumption_periods)
+        assert period_sum == usage.total_usage
+        assert period_sum == 4842
+
+    def test_estimated_periods_keep_real_value_and_tag(self, real_gas_monthly_response):
+        # 26 Feb is the user's reported estimated month (397 kWh per Mercury
+        # dashboard) — must NOT be overwritten by its actual=0 partner.
+        usage = GasUsage(real_gas_monthly_response)
+        feb = next(p for p in usage.consumption_periods if p['invoice_to'] == '2026-02-26')
+        assert feb['consumption'] == 397
+        assert feb['is_estimated'] is True
+        assert feb['read_type'] == 'estimate'
+
+    def test_actual_periods_pick_actual_over_zero_estimate(self, real_gas_monthly_response):
+        # 27 Mar is the user's reported actual month (460 kWh per Mercury
+        # dashboard) — must read the actual, not the estimate=0 partner.
+        usage = GasUsage(real_gas_monthly_response)
+        mar = next(p for p in usage.consumption_periods if p['invoice_to'] == '2026-03-27')
+        assert mar['consumption'] == 460
+        assert mar['is_estimated'] is False
+        assert mar['read_type'] == 'actual'
+
+    def test_chronological_order(self, real_gas_monthly_response):
+        usage = GasUsage(real_gas_monthly_response)
+        invoice_tos = [p['invoice_to'] for p in usage.consumption_periods]
+        assert invoice_tos == sorted(invoice_tos)
+        for d in ('2026-01-30', '2026-02-26', '2026-03-27'):
+            assert d in invoice_tos
+
+    def test_empty_usage_returns_empty_list(self):
+        usage = ServiceUsage({'usage': []})
+        assert usage.consumption_periods == []
+
+    def test_actual_only_response_unchanged(self):
+        # Electricity-style payload (only 'actual' group). consumption_periods
+        # should produce entries 1:1 with daily_usage, all is_estimated=False.
+        data = {
+            'usage': [{'label': 'actual', 'data': [
+                {'date': '2026-01-01', 'invoiceFrom': '2026-01-01', 'invoiceTo': '2026-01-01', 'consumption': 5, 'cost': 1},
+                {'date': '2026-01-02', 'invoiceFrom': '2026-01-02', 'invoiceTo': '2026-01-02', 'consumption': 7, 'cost': 1.5},
+            ]}]
+        }
+        usage = ServiceUsage(data)
+        assert len(usage.consumption_periods) == 2
+        assert [p['consumption'] for p in usage.consumption_periods] == [5, 7]
+        assert all(not p['is_estimated'] for p in usage.consumption_periods)
+
+    def test_tie_breaker_prefers_actual_over_estimate(self):
+        # Both groups same non-zero value (Mercury correction scenario).
+        # Convention: actual wins on ties.
+        data = {
+            'usage': [
+                {'label': 'estimate', 'data': [{'date': '2026-01-01', 'invoiceTo': '2026-01-01', 'consumption': 100, 'cost': 30}]},
+                {'label': 'actual',   'data': [{'date': '2026-01-01', 'invoiceTo': '2026-01-01', 'consumption': 100, 'cost': 30}]},
+            ]
+        }
+        usage = ServiceUsage(data)
+        assert len(usage.consumption_periods) == 1
+        assert usage.consumption_periods[0]['is_estimated'] is False
+        assert usage.consumption_periods[0]['read_type'] == 'actual'
+
+    def test_picks_larger_non_zero_when_both_have_values(self):
+        # Defensive: if Mercury sends both with different non-zero values
+        # (a corrected/finalized read), pick the larger.
+        data = {
+            'usage': [
+                {'label': 'estimate', 'data': [{'date': '2026-01-01', 'invoiceTo': '2026-01-01', 'consumption': 50, 'cost': 15}]},
+                {'label': 'actual',   'data': [{'date': '2026-01-01', 'invoiceTo': '2026-01-01', 'consumption': 75, 'cost': 22}]},
+            ]
+        }
+        usage = ServiceUsage(data)
+        assert len(usage.consumption_periods) == 1
+        assert usage.consumption_periods[0]['consumption'] == 75
+        assert usage.consumption_periods[0]['is_estimated'] is False
+
+    def test_all_zero_pair_keeps_actual(self):
+        # Both estimate and actual are zero (the period had no real read at
+        # capture time). Tie-breaker still picks actual.
+        data = {
+            'usage': [
+                {'label': 'estimate', 'data': [{'date': '2026-01-01', 'invoiceTo': '2026-01-01', 'consumption': 0, 'cost': 0}]},
+                {'label': 'actual',   'data': [{'date': '2026-01-01', 'invoiceTo': '2026-01-01', 'consumption': 0, 'cost': 0}]},
+            ]
+        }
+        usage = ServiceUsage(data)
+        assert len(usage.consumption_periods) == 1
+        assert usage.consumption_periods[0]['is_estimated'] is False
+        assert usage.consumption_periods[0]['read_type'] == 'actual'

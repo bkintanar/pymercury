@@ -470,6 +470,19 @@ def example_5a_gas_usage_analysis(tokens=None, api_client=None):
                     cost = day.get('cost') or 0
                     marker = ' (estimated)' if day.get('is_estimated') else ''
                     print(f"      {i}. {date_str}: {consumption:.2f} units{marker} (${cost:.2f})")
+                # Collapsed view: one entry per billing period (estimate/actual
+                # pair merged). This is the recommended consumer surface for
+                # downstream tools (e.g., HA statistics importers) — no need
+                # to walk the parallel-pair structure of daily_usage.
+                periods = getattr(monthly_gas, 'consumption_periods', [])
+                if periods:
+                    print(f"   📊 Consumption Periods (collapsed pair view, {len(periods)} entries):")
+                    for i, p in enumerate(periods[-6:], 1):
+                        anchor = (p.get('invoice_to') or p.get('date') or '?')[:10]
+                        consumption = p.get('consumption') or 0
+                        cost = p.get('cost') or 0
+                        marker = ' (estimated)' if p.get('is_estimated') else ''
+                        print(f"      {i}. {anchor}: {consumption:.2f} units{marker} (${cost:.2f})")
             elif monthly_gas:
                 print(f"⚠️ Monthly gas usage returned no data points (window may be empty)")
             else:

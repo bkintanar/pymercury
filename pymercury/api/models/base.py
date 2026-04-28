@@ -7,6 +7,7 @@ Contains shared base classes and common functionality.
 
 import os
 import sys
+from collections import defaultdict
 from typing import Dict, Any, List
 
 
@@ -218,3 +219,69 @@ class ServiceUsage:
 
         # Store annotations field
         self.annotations = data.get('annotations', [])
+
+    @property
+    def consumption_periods(self) -> List[Dict[str, Any]]:
+        """One entry per billing period — collapses the estimate+actual pair.
+
+        Mercury returns gas (and possibly other) usage as two parallel groups:
+        ``estimate`` and ``actual``. For each billing period both groups emit
+        a record at the same ``(invoice_from, invoice_to)`` window, but only
+        ONE has a non-zero consumption — the other is a zero placeholder.
+        Iterating ``daily_usage`` directly gives consumers double the rows
+        and forces them to handle the pair structure themselves; bucketize-
+        by-anchor with a naive ``dict[anchor] = ...`` assignment causes the
+        second-written entry to clobber the first, losing the real value
+        for either estimated or actual months depending on group order.
+
+        This property collapses each pair to a single entry by grouping on
+        ``(invoice_from, invoice_to)`` (or ``date`` when invoice fields are
+        absent for flat-shape compatibility) and picking the entry with the
+        largest non-zero consumption. Ties are broken by preferring
+        ``actual`` over ``estimate`` (matches the convention that an actual
+        meter reading authoritatively supersedes an estimate, including the
+        zero/zero pair where both consumptions are 0). Returned in
+        chronological order by invoice end date.
+
+        Recommended consumer surface for downstream tools (e.g., Home
+        Assistant statistics importers) so they don't have to walk the
+        parallel-pair structure themselves.
+
+        Edge cases:
+
+        - If a daily_usage entry has neither ``invoice_from``, ``invoice_to``
+          nor ``date``, its grouping key degenerates to ``('', '')`` and
+          multiple such entries collapse to one (the largest/actual wins).
+          Mercury's known shapes always include at least ``date``, so this
+          is a defensive note rather than an observed scenario.
+        - Sort key is lexicographic on the ``invoice_to`` (or ``date``)
+          string. Safe for Mercury's observed ``YYYY-MM-DD[Thh:mm:ss±HH:MM]``
+          shapes; would misorder if Mercury ever mixed local-offset and
+          UTC-encoded equivalents within the same response (not currently
+          observed).
+        """
+        if not self.daily_usage:
+            return []
+
+        grouped: Dict[tuple, List[Dict[str, Any]]] = defaultdict(list)
+        for entry in self.daily_usage:
+            key = (
+                entry.get('invoice_from') or '',
+                entry.get('invoice_to') or entry.get('date') or '',
+            )
+            grouped[key].append(entry)
+
+        def _rank(e: Dict[str, Any]) -> tuple:
+            # (-consumption: bigger first; estimated last on ties so actual wins)
+            consumption = e.get('consumption') or 0
+            return (-float(consumption), 1 if e.get('is_estimated') else 0)
+
+        collapsed: List[Dict[str, Any]] = []
+        for entries in grouped.values():
+            if len(entries) == 1:
+                collapsed.append(entries[0])
+            else:
+                collapsed.append(sorted(entries, key=_rank)[0])
+
+        collapsed.sort(key=lambda d: d.get('invoice_to') or d.get('date') or '')
+        return collapsed
