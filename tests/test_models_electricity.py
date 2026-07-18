@@ -181,17 +181,60 @@ class TestElectricityPlans:
     def test_icp_fallback_to_short_key(self):
         assert ElectricityPlans({"icp": "ICP-3"}).icp_number == "ICP-3"
 
-    def test_when_charge_and_rate_names_missing(self):
+    def test_when_names_unrecognized_and_ambiguous_stays_none(self):
+        # 2+ unrecognized entries → can't disambiguate → None (no fallback).
         p = ElectricityPlans({
             "currentPlan": {
                 "charges": {
-                    "otherCharges": [{"name": "Different", "rate": 2}],
-                    "unitRates": [{"name": "Peak", "rate": 0.5}],
+                    "otherCharges": [
+                        {"name": "Metering", "rate": 2},
+                        {"name": "Levy", "rate": 3},
+                    ],
+                    "unitRates": [
+                        {"name": "Peak", "rate": 0.5},
+                        {"name": "Off-Peak", "rate": 0.2},
+                    ],
                 }
             }
         })
         assert p.daily_fixed_charge is None
         assert p.anytime_rate is None
+
+    def test_issue_9_renamed_charges_are_matched(self):
+        # Mercury renamed "Daily Fixed Charge" → "Fixed Daily Charge" and the
+        # unit rate "Anytime" → "Inclusive" (GitHub issue #9).
+        p = ElectricityPlans({
+            "currentPlan": {
+                "usageType": "Standard",
+                "charges": {
+                    "unitRates": [
+                        {"name": "Inclusive", "rate": "$0.2559", "measure": "per kWh"},
+                    ],
+                    "otherCharges": [
+                        {"name": "Fixed Daily Charge", "rate": "$3.3235", "measure": "per day"},
+                    ],
+                },
+            }
+        })
+        assert p.daily_fixed_charge == "$3.3235"
+        assert p.daily_fixed_charge_rate == "$3.3235"
+        assert p.anytime_rate == "$0.2559"
+        assert p.anytime_rate_measure == "per kWh"
+
+    def test_single_unrecognized_entry_falls_back(self):
+        # Future rename we don't know yet: a lone charge/rate with an
+        # unrecognized name is still used (single-entry fallback).
+        p = ElectricityPlans({
+            "currentPlan": {
+                "charges": {
+                    "otherCharges": [{"name": "Some New Name", "rate": "$4.00"}],
+                    "unitRates": [{"name": "Brand New Rate", "rate": "$0.30", "measure": "per kWh"}],
+                }
+            }
+        })
+        assert p.daily_fixed_charge == "$4.00"
+        assert p.anytime_rate == "$0.30"
+        assert p.anytime_rate_measure == "per kWh"
 
     def test_with_empty_data(self):
         p = ElectricityPlans({})

@@ -127,23 +127,37 @@ class ElectricityPlans:
         self.other_charges = charges.get('otherCharges', [])
         self.unit_rates = charges.get('unitRates', [])
 
-        # Extract daily fixed charge from otherCharges array
+        # Extract daily fixed charge from otherCharges array.
+        # Mercury has shipped this under both "Daily Fixed Charge" and
+        # "Fixed Daily Charge" (issue #9); match order-independently on the
+        # words, then fall back to the sole charge when there is exactly one.
         self.daily_fixed_charge = None
         self.daily_fixed_charge_rate = None
         for charge in self.other_charges:
-            if charge.get('name') == 'Daily Fixed Charge':
+            name = (charge.get('name') or '').lower()
+            if 'daily' in name and 'charge' in name:
                 self.daily_fixed_charge = charge.get('rate')
                 self.daily_fixed_charge_rate = charge.get('rate')
                 break
+        if self.daily_fixed_charge is None and len(self.other_charges) == 1:
+            self.daily_fixed_charge = self.other_charges[0].get('rate')
+            self.daily_fixed_charge_rate = self.other_charges[0].get('rate')
 
-        # Extract unit rate (typically "Anytime" rate) from unitRates array
+        # Extract the single all-hours unit rate from unitRates array.
+        # Mercury has used both "Anytime" and "Inclusive" (issue #9); match by
+        # alias, then fall back to the sole unit rate when there is exactly one
+        # (single-rate plans). Multi-rate TOU plans keep None unless an explicit
+        # anytime/inclusive rate is present.
         self.anytime_rate = None
         self.anytime_rate_measure = None
         for rate in self.unit_rates:
-            if rate.get('name') == 'Anytime':
+            if (rate.get('name') or '').lower() in ('anytime', 'inclusive'):
                 self.anytime_rate = rate.get('rate')
                 self.anytime_rate_measure = rate.get('measure')
                 break
+        if self.anytime_rate is None and len(self.unit_rates) == 1:
+            self.anytime_rate = self.unit_rates[0].get('rate')
+            self.anytime_rate_measure = self.unit_rates[0].get('measure')
 
         # Available alternative plans - Mercury's actual fields
         self.standard_plans = data.get('standardPlans', [])
