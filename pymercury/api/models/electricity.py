@@ -19,7 +19,8 @@ class ElectricityUsageContent:
         self.title = data.get('title')
         self.description = data.get('description')
         self.usage_data = data.get('usageData', [])
-        self.summary_info = data.get('summaryInfo', {})
+        # `or {}` guards against a null value (not just an absent key).
+        self.summary_info = data.get('summaryInfo') or {}
         # Add other usage content fields as needed
 
 
@@ -31,7 +32,11 @@ class ElectricitySummary:
         self.service_type = data.get('serviceType')
 
         # Weekly summary information (Monday to Sunday)
-        self.weekly_summary = data.get('weeklySummary', {})
+        # `or {}` (not a `.get` default) because Mercury sends weeklySummary: null
+        # for accounts without a full week of billing history yet — the key is
+        # present, so a `.get('weeklySummary', {})` default would not apply and
+        # the subsequent `.get(...)` would raise AttributeError (GitHub issue #27).
+        self.weekly_summary = data.get('weeklySummary') or {}
         self.weekly_start_date = self.weekly_summary.get('startDate')  # Monday
         self.weekly_end_date = self.weekly_summary.get('endDate')      # Sunday
         self.weekly_notes = self.weekly_summary.get('notes', [])
@@ -47,7 +52,9 @@ class ElectricitySummary:
         self.weekly_usage_days = len(weekly_usage)
 
         # Monthly summary information
-        self.monthly_summary = data.get('monthlySummary', {})
+        # `or {}` for the same reason as weeklySummary above: Mercury sends
+        # monthlySummary: null before a full billing month exists (issue #27).
+        self.monthly_summary = data.get('monthlySummary') or {}
         self.monthly_start_date = self.monthly_summary.get('startDate')
         self.monthly_end_date = self.monthly_summary.get('endDate')
         self.monthly_status = self.monthly_summary.get('status')
@@ -103,12 +110,12 @@ class ElectricityPlans:
         self.can_change_plan = data.get('canChangePlan', False)
 
         # Pending plan changes - Mercury's actual structure
-        pending_plan = data.get('pendingPlan', {})
+        pending_plan = data.get('pendingPlan') or {}
         self.is_pending_plan_change = pending_plan.get('isPendingPlanChange', False)
         self.plan_change_date = pending_plan.get('planChangeDate', '')
 
         # Current plan - Mercury's actual structure
-        self.current_plan = data.get('currentPlan', {})
+        self.current_plan = data.get('currentPlan') or {}
         self.current_plan_id = self.current_plan.get('planId')
         self.current_plan_name = self.current_plan.get('name')
         self.current_plan_description = self.current_plan.get('description')
@@ -116,7 +123,7 @@ class ElectricityPlans:
         self.current_plan_learn_more = self.current_plan.get('learnMore')
 
         # Current plan charges - Mercury's actual structure
-        charges = self.current_plan.get('charges', {})
+        charges = self.current_plan.get('charges') or {}
         self.other_charges = charges.get('otherCharges', [])
         self.unit_rates = charges.get('unitRates', [])
 

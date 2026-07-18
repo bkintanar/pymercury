@@ -16,7 +16,7 @@ class GasUsageContent:
         self.raw_data = data
         self.content_name = data.get('contentName')
         self.locale = data.get('locale')
-        self.content = data.get('content', {})
+        self.content = data.get('content') or {}
 
         # Parse specific gas usage content fields
         content_data = self.content

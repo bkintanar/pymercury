@@ -95,6 +95,31 @@ class TestElectricitySummary:
         assert s.variable_charges == []
         assert s.gst_amount is None
 
+    def test_with_null_weekly_and_monthly_summary(self):
+        # Mercury returns null (not an absent key) for these when the account
+        # has < 1 week / < 1 month of billing history — e.g. a new customer.
+        # A `.get(key, {})` default does NOT apply to a present-but-null key,
+        # so this used to crash with AttributeError (GitHub issue #27).
+        s = ElectricitySummary({
+            "serviceType": "Electricity",
+            "weeklySummary": None,
+            "monthlySummary": None,
+        })
+        # Null must be coerced to {}, and no attribute access may raise.
+        assert s.weekly_summary == {}
+        assert s.monthly_summary == {}
+        assert s.weekly_start_date is None
+        assert s.weekly_end_date is None
+        assert s.weekly_notes == []
+        assert s.last_week_cost is None
+        assert s.weekly_total_usage == 0
+        assert s.weekly_usage_days == 0
+        assert s.total_kwh_used is None
+        assert s.monthly_start_date is None
+        assert s.monthly_days_remaining is None
+        assert s.monthly_usage_cost is None
+        assert s.monthly_usage_consumption is None
+
 
 class TestElectricityPlans:
     def test_with_full_plan_data(self):
