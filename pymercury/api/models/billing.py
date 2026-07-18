@@ -85,7 +85,7 @@ class BillSummary:
         self.smooth_pay = data.get('smoothPay')
 
         # Statement breakdown
-        self.statement = data.get('statement', {})
+        self.statement = data.get('statement') or {}
         self.statement_details = self.statement.get('details', [])
         self.statement_total = self.statement.get('total')
 
